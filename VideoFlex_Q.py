@@ -56,7 +56,7 @@ APP_AUTHOR = "Pablo F. Espinosa"
 APP_COMPANY = "PFE Computación"
 APP_YEAR = "2025-2026"
 APP_DESCRIPTION = "Descargador Universal de Videos y Torrents"
-APP_GITHUB_URL = "https://github.com/pfecomputacion/videoflex"   # cambiar a ".../videoflex" al publicar el repo
+APP_GITHUB_URL = "https://github.com/pfecomputacion/videoflex"
 APP_LICENSE = "GPL-3.0"
 
 # Archivo de log de errores
@@ -2093,12 +2093,7 @@ class VideoFlexApp:
 
     def navigate_to(self, section: str):
         try:
-            cambiar = getattr(self, "_last_built_section", None) != section
             self._current_section = section
-            if cambiar:
-                self.page.controls.clear()
-                self._build_layout()
-                self._last_built_section = section
             self.content_area.controls.clear()
             builders = {
                 "dashboard": self._build_dashboard_compact,
@@ -2112,22 +2107,18 @@ class VideoFlexApp:
                 "help": self._show_help_section_compact,
             }
             fn = builders.get(section)
-            if fn: fn()
+            if fn:
+                fn()
             self.page.update()
         except Exception as e:
-            logger.error(f"navigate_to({section}): {e}")
-            try: self._show_snack(f"Error: {str(e)[:60]}", "red")
-            except Exception: pass
-        except Exception as e:
-            logger.error(f"Error en navigate_to({section}): {e}")
+            import traceback
+            print(f"ERROR navigate_to({section}): {e}")
+            traceback.print_exc()
             try:
-                self._show_snack(f"❌ Error al abrir sección: {str(e)[:60]}", "red")
+                self._show_snack(f"❌ Error: {str(e)[:60]}", "red")
             except Exception:
                 pass
 
-    # ═══════════════════════════════════════════════════════════
-    # MONITOREO EN SEGUNDO PLANO
-    # ═══════════════════════════════════════════════════════════
     def _start_monitoring(self):
         def _safe_run_task(coro_fn):
             try:
