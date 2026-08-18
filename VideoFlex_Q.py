@@ -56,7 +56,7 @@ APP_AUTHOR = "Pablo F. Espinosa"
 APP_COMPANY = "PFE Computación"
 APP_YEAR = "2025-2026"
 APP_DESCRIPTION = "Descargador Universal de Videos y Torrents"
-APP_GITHUB_URL = "https://github.com/pfecomputacion/videoflex"
+APP_GITHUB_URL = "https://github.com/pablofespinosa/videoflex"
 APP_LICENSE = "GPL-3.0"
 
 # Archivo de log de errores
@@ -1270,6 +1270,8 @@ class VideoManager:
             'http_chunk_size': 1048576,
             'no_check_certificate': True,
             'geo_bypass': True,
+                'js_runtimes': {'node': None},
+            'source_address': '0.0.0.0',
             'http_headers': {'User-Agent': UA_CHROME},
             'check_formats': False,
             'allow_unplayable_formats': False,
@@ -1342,12 +1344,7 @@ class VideoManager:
                 'best',
             ]
 
-        yt_strategies = [
-            {'player_client': ['android']},
-            {'player_client': ['web']},
-            {'player_client': ['ios']},
-            None,
-        ]
+        yt_strategies = [None]
 
         success = False
         last_exception = None
@@ -1361,6 +1358,10 @@ class VideoManager:
                 'quiet': True,
                 'no_warnings': True,
                 'skip_download': True,
+                'socket_timeout': 20,
+                'retries': 2,
+                'extractor_retries': 1,
+                'source_address': '0.0.0.0',
                 'http_headers': {'User-Agent': UA_CHROME},
             }
             if temp_cookies_path:
@@ -2118,6 +2119,7 @@ class VideoFlexApp:
                 self._show_snack(f"❌ Error: {str(e)[:60]}", "red")
             except Exception:
                 pass
+
 
     def _start_monitoring(self):
         def _safe_run_task(coro_fn):
@@ -4095,18 +4097,22 @@ class VideoFlexApp:
                 border_radius=8, alignment=ft.Alignment(0, 0))
 
         def dl(e):
-            try:
-                self._show_snack(f"⬇️ Descargando: {r['title'][:40]}...", "blue")
-                self.video_mgr.download(
-                    r['url'], self.config.video_path,
-                    use_cookies=self.config.use_cookies,
-                    cookies_path=self.config.cookies_path,
-                    quality=self.config.video_quality)
-                self.navigate_to("downloads")
-                self._show_snack("✅ Añadido a la cola de descargas", "green")
-            except Exception as ex:
-                self._show_snack(f"❌ Error al descargar: {str(ex)[:60]}", "red")
-
+            self._show_snack(f"⬇️ Descarga iniciada: {r['title'][:40]}...", "green")
+            def work():
+                try:
+                    self.video_mgr.download(
+                        r['url'], self.config.video_path,
+                        use_cookies=self.config.use_cookies,
+                        cookies_path=self.config.cookies_path,
+                        quality=self.config.video_quality)
+                    async def go():
+                        self.navigate_to("downloads")
+                    self.page.run_task(go())
+                except Exception as ex:
+                    async def err():
+                        self._show_snack(f"❌ Error: {str(ex)[:60]}", "red")
+                    self.page.run_task(err())
+            threading.Thread(target=work, daemon=True).start()
         return ft.Container(
             padding=10, bgcolor="#334155" if is_dark else "#e2e8f0", border_radius=10,
             content=ft.Row([
