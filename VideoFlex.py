@@ -578,11 +578,11 @@ class QBittorrentAPI:
                     
                     resp_text = resp.text.strip().lower()
                     
-                    if resp.status_code == 200 and resp_text not in ("fails.", "fail"):
+                    if 200 <= resp.status_code < 300 and resp_text not in ("fails.", "fail"):
                         version_url = f"{self.base_url}/app/version"
                         version_resp = self.session.get(version_url, timeout=self.timeout)
                         
-                        if version_resp.status_code == 200:
+                        if version_200 <= resp.status_code < 300:
                             self.connected = True
                             self.version = version_resp.text.strip()
                             self.last_error = ""
@@ -649,7 +649,7 @@ class QBittorrentAPI:
                 return []
             try:
                 resp = self.session.get(f"{self.base_url}/torrents/info", timeout=10)
-                if resp.status_code == 200:
+                if 200 <= resp.status_code < 300:
                     return resp.json()
                 elif resp.status_code == 403:
                     self.connected = False
@@ -694,7 +694,7 @@ class QBittorrentAPI:
                             timeout=30
                         )
                         
-                        if resp.status_code == 200:
+                        if 200 <= resp.status_code < 300:
                             response_text = resp.text.strip().lower()
                             if response_text and "fail" in response_text:
                                 if "duplicate" in response_text:
@@ -737,7 +737,7 @@ class QBittorrentAPI:
             if action == "delete":
                 data["deleteFiles"] = "false"
             resp = self.session.post(f"{self.base_url}/torrents/{action}", data=data, timeout=5)
-            return resp.status_code == 200
+            return 200 <= resp.status_code < 300
         except Exception as e:
             logger.error(f"Error control_torrent: {e}")
             return False
@@ -751,7 +751,7 @@ class QBittorrentAPI:
                     f"{self.base_url}/sync/torrentPeers",
                     params={"hash": hash_str}, timeout=5
                 )
-                if resp.status_code == 200:
+                if 200 <= resp.status_code < 300:
                     data = resp.json()
                     peers = data.get('peers', {})
                     return list(peers.values())[:20]
@@ -768,7 +768,7 @@ class QBittorrentAPI:
                     f"{self.base_url}/torrents/trackers",
                     params={"hash": hash_str}, timeout=5
                 )
-                if resp.status_code == 200:
+                if 200 <= resp.status_code < 300:
                     return resp.json()
             except Exception:
                 pass
@@ -780,7 +780,7 @@ class QBittorrentAPI:
                 return {}
             try:
                 resp = self.session.get(f"{self.base_url}/transfer/info", timeout=5)
-                if resp.status_code == 200:
+                if 200 <= resp.status_code < 300:
                     return resp.json()
             except Exception:
                 pass
@@ -1495,7 +1495,11 @@ class VideoFlexApp:
     def _setup_page(self):
         self.page.title = f"{APP_NAME} v{APP_VERSION}"
         self.page.padding = 0
-        self.page.theme_mode = ft.ThemeMode.DARK if self.config.theme == "dark" else ft.ThemeMode.LIGHT
+        _t0 = self.config.theme
+        if _t0 == "auto":
+            _h0 = datetime.now().hour
+            _t0 = "dark" if _h0 >= 20 or _h0 < 7 else "light"
+        self.page.theme_mode = ft.ThemeMode.DARK if _t0 == "dark" else ft.ThemeMode.LIGHT
         self.page.on_keyboard_event = self._on_keyboard
         self.page.on_close = self._on_session_close
         self.page.on_disconnect = self._on_session_close
@@ -1638,7 +1642,11 @@ class VideoFlexApp:
         # Restaurar ventana normal con barra
         self.page.window.title_bar_hidden = False
         self.page.window.frameless        = False
-        self.page.bgcolor = "#0f172a" if self.config.theme == "dark" else "#f8fafc"
+        _t1 = self.config.theme
+        if _t1 == "auto":
+            _h1 = datetime.now().hour
+            _t1 = "dark" if _h1 >= 20 or _h1 < 7 else "light"
+        self.page.bgcolor = "#0f172a" if _t1 == "dark" else "#f8fafc"
         self.page.window.bgcolor          = ft.Colors.TRANSPARENT
         self.page.window.min_width  = 900
         self.page.window.min_height = 580
@@ -1837,6 +1845,7 @@ class VideoFlexApp:
             ("Dashboard", ft.Icons.DASHBOARD, "dashboard"),
             ("Torrents", ft.Icons.LINK, "torrents"),
             ("Videos", ft.Icons.VIDEO_LIBRARY, "videos"),
+            ("Explorar", ft.Icons.TRAVEL_EXPLORE, "explorar"),
             ("Descargas", ft.Icons.DOWNLOAD, "downloads"),
             ("Historial", ft.Icons.HISTORY, "history"),
             ft.Divider(height=1),
@@ -2091,7 +2100,9 @@ class VideoFlexApp:
                         elif self._current_section == "dashboard":
                             async def refresh_dashboard():
                                 if self._session_alive:
-                                    self.navigate_to("dashboard")
+                                    self._update_status_ui()
+                                    try: self.page.update()
+                                    except: pass
                             _safe_run_task(refresh_dashboard)
 
                     if self._session_alive:
@@ -2130,6 +2141,7 @@ class VideoFlexApp:
         threading.Thread(target=data_loop, daemon=True).start()
         threading.Thread(target=notification_loop, daemon=True).start()
         threading.Thread(target=self._clipboard_monitor_loop, daemon=True).start()
+        threading.Thread(target=self._auto_theme_loop, daemon=True).start()
     
     def _clipboard_monitor_loop(self):
         """Monitorea el portapapeles para detectar enlaces automáticamente."""
@@ -2203,6 +2215,23 @@ class VideoFlexApp:
                 if self._session_alive:
                     logger.error(f"Error en clipboard_monitor: {e}")
     
+    def _auto_theme_loop(self):
+        while self._session_alive:
+            try:
+                if self.config.theme == "auto":
+                    _h = datetime.now().hour
+                    _eff = "dark" if _h >= 20 or _h < 7 else "light"
+                    _cur = "dark" if self.page.theme_mode == ft.ThemeMode.DARK else "light"
+                    if _eff != _cur:
+                        async def _sw():
+                            if not self._session_alive: return
+                            self.page.theme_mode = ft.ThemeMode.DARK if _eff == "dark" else ft.ThemeMode.LIGHT
+                            self.page.bgcolor = "#0f172a" if _eff == "dark" else "#f8fafc"
+                            self.page.update()
+                        if self.page: self.page.run_task(_sw())
+            except Exception as e: logger.error(f"auto_theme: {e}")
+            time.sleep(300)
+
     def _update_status_ui(self):
         if not self._session_alive:
             return
@@ -4526,6 +4555,294 @@ class VideoFlexApp:
             else:
                 self._show_snack(f"Error: {e}", "red")
 
+    # ═══════════════════════════════════════════════════════
+    # EXPLORAR — busqueda YouTube, canal completo y audio local
+    # ═══════════════════════════════════════════════════════
+    def _build_explorar_compact(self):
+        is_dark = self.config.theme == "dark"
+        bg_card = "#1e293b" if is_dark else "#f1f5f9"
+        border = with_opacity(0.1, "white" if is_dark else "black")
+        self._search_input = ft.TextField(
+            hint_text="Buscar en YouTube (ej: lofi hip hop, tutorial python)...",
+            expand=True, height=48, border_radius=10,
+            prefix_icon=ft.Icons.SEARCH, text_size=14, content_padding=14,
+            on_submit=lambda e: self._do_video_search(),
+        )
+        self._search_results = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO, height=320)
+        self._channel_input = ft.TextField(
+            hint_text="URL del canal (ej: https://youtube.com/@canal)",
+            expand=True, height=44, border_radius=10,
+            prefix_icon=ft.Icons.SUBSCRIPTIONS, text_size=13, content_padding=14,
+        )
+        self._channel_limit = ft.Dropdown(
+            label="Últimos", width=100, height=44, border_radius=10,
+            text_size=12, content_padding=10, value="10",
+            options=[ft.dropdown.Option(v) for v in ["5", "10", "25", "50", "100"]],
+        )
+        self._audio_format_dd = ft.Dropdown(
+            label="Formato", width=110, height=44, border_radius=10,
+            text_size=12, content_padding=10, value="mp3",
+            options=[ft.dropdown.Option(v) for v in ["mp3", "m4a", "flac", "wav"]],
+        )
+        self._audio_status = ft.Text("", size=11, color="#64748b", expand=True)
+        self.content_area.controls = [
+            ft.Container(
+                padding=ft.Padding.symmetric(horizontal=24, vertical=20),
+                content=ft.Column([
+                    ft.Row([
+                        ft.Icon(ft.Icons.TRAVEL_EXPLORE, size=26, color="#6366f1"),
+                        ft.Container(width=10),
+                        ft.Text("Explorar", size=24, weight=ft.FontWeight.BOLD),
+                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ft.Container(height=16),
+                    ft.Container(
+                        padding=16, bgcolor=bg_card, border_radius=14,
+                        border=ft.Border.all(1, border),
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.Icons.SEARCH, size=16, color="#6366f1"),
+                                ft.Text("Buscar en YouTube", size=13, weight=ft.FontWeight.W_600, color="#6366f1"),
+                            ], spacing=8),
+                            ft.Container(height=10),
+                            ft.Row([
+                                self._search_input,
+                                ft.Button("Buscar", icon=ft.Icons.SEARCH,
+                                          on_click=lambda e: self._do_video_search(),
+                                          style=ft.ButtonStyle(bgcolor="#6366f1", color="white",
+                                              shape=ft.RoundedRectangleBorder(radius=10)),
+                                          height=48),
+                            ], spacing=10),
+                            ft.Container(height=12),
+                            ft.Container(content=self._search_results, height=340),
+                        ], spacing=0, tight=True),
+                    ),
+                    ft.Container(height=16),
+                    ft.Container(
+                        padding=16, bgcolor=bg_card, border_radius=14,
+                        border=ft.Border.all(1, border),
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.Icons.SUBSCRIPTIONS, size=16, color="#ef4444"),
+                                ft.Text("Descargar canal completo", size=13, weight=ft.FontWeight.W_600, color="#ef4444"),
+                            ], spacing=8),
+                            ft.Container(height=10),
+                            ft.Row([
+                                self._channel_input,
+                                self._channel_limit,
+                                ft.Button("Descargar", icon=ft.Icons.DOWNLOAD,
+                                          on_click=lambda e: self._do_channel_download(),
+                                          style=ft.ButtonStyle(bgcolor="#ef4444", color="white",
+                                              shape=ft.RoundedRectangleBorder(radius=10)),
+                                          height=44),
+                            ], spacing=10),
+                            ft.Container(height=6),
+                            ft.Text("Añade a la cola los últimos N videos del canal.", size=11, color="#64748b"),
+                        ], spacing=0, tight=True),
+                    ),
+                    ft.Container(height=16),
+                    ft.Container(
+                        padding=16, bgcolor=bg_card, border_radius=14,
+                        border=ft.Border.all(1, border),
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.Icons.AUDIO_FILE, size=16, color="#10b981"),
+                                ft.Text("Extraer audio de un video local", size=13, weight=ft.FontWeight.W_600, color="#10b981"),
+                            ], spacing=8),
+                            ft.Container(height=10),
+                            ft.Row([
+                                ft.Button("Elegir archivo…", icon=ft.Icons.FOLDER_OPEN,
+                                          on_click=lambda e: self._extract_local_audio(),
+                                          style=ft.ButtonStyle(bgcolor="#10b981", color="white",
+                                              shape=ft.RoundedRectangleBorder(radius=10)),
+                                          height=40),
+                                ft.Container(width=10),
+                                self._audio_format_dd,
+                                ft.Container(width=10),
+                                self._audio_status,
+                            ]),
+                            ft.Container(height=6),
+                            ft.Text("Convierte MP4/MKV/WebM/AVI a audio con FFmpeg.", size=11, color="#64748b"),
+                        ], spacing=0, tight=True),
+                    ),
+                ], spacing=0, tight=True),
+            )
+        ]
+
+    def _do_video_search(self):
+        query = self._search_input.value.strip() if self._search_input else ""
+        if not query:
+            self._show_snack("⚠️ Escribe algo para buscar", "orange")
+            return
+        self._show_snack(f"🔎 Buscando '{query}'...", "blue")
+
+        def do_search():
+            results = []
+            try:
+                import yt_dlp
+                opts = {'quiet': True, 'no_warnings': True, 'extract_flat': True,
+                        'playlistend': 12, 'skip_download': True}
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(f"ytsearch12:{query}", download=False)
+                for e_ in (info.get('entries') or [])[:12]:
+                    vid = e_.get('id') or ''
+                    url = e_.get('url') or (f"https://www.youtube.com/watch?v={vid}" if vid else '')
+                    if not url: continue
+                    thumbs = e_.get('thumbnails') or []
+                    results.append({
+                        'title': e_.get('title') or 'Sin título',
+                        'url': url,
+                        'duration': e_.get('duration'),
+                        'uploader': e_.get('uploader') or e_.get('channel') or '',
+                        'thumb': thumbs[-1].get('url') if thumbs else '',
+                    })
+            except Exception as ex:
+                logger.error(f"Error búsqueda: {ex}")
+            async def update():
+                if not self._session_alive: return
+                ctrl = getattr(self, '_search_results', None)
+                if ctrl is None: return
+                ctrl.controls.clear()
+                if not results:
+                    ctrl.controls.append(ft.Container(
+                        content=ft.Column([
+                            ft.Icon(ft.Icons.SEARCH_OFF, size=36, color="#64748b"),
+                            ft.Text("Sin resultados", size=12, color="#94a3b8"),
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                        alignment=ft.Alignment(0, 0), padding=30))
+                else:
+                    for r in results:
+                        ctrl.controls.append(self._search_result_card(r))
+                self.page.update()
+            self.page.run_task(update)
+        threading.Thread(target=do_search, daemon=True).start()
+
+    def _search_result_card(self, r):
+        is_dark = self.config.theme == "dark"
+        dur = r.get('duration')
+        dur_txt = f"{int(dur)//60}:{int(dur)%60:02d}" if dur else ""
+        if r.get('thumb'):
+            thumb = ft.Image(src=r['thumb'], width=120, height=68, fit="cover", border_radius=8)
+        else:
+            thumb = ft.Container(
+                content=ft.Icon(ft.Icons.PLAY_CIRCLE_OUTLINE, size=28, color="#475569"),
+                width=120, height=68,
+                bgcolor="#1e293b" if is_dark else "#e2e8f0",
+                border_radius=8, alignment=ft.Alignment(0, 0))
+        def dl(e):
+            try:
+                self._show_snack(f"⬇️ Descargando: {r['title'][:40]}...", "blue")
+                self.video_mgr.download(
+                    r['url'], self.config.video_path,
+                    use_cookies=self.config.use_cookies,
+                    cookies_path=self.config.cookies_path,
+                    quality=self.config.video_quality)
+                self.navigate_to("downloads")
+                self._show_snack("✅ Añadido a la cola de descargas", "green")
+            except Exception as ex:
+                self._show_snack(f"❌ Error: {str(ex)[:60]}", "red")
+        return ft.Container(
+            padding=10, bgcolor="#334155" if is_dark else "#e2e8f0", border_radius=10,
+            content=ft.Row([
+                ft.Container(content=thumb, border_radius=8, clip_behavior="hardEdge"),
+                ft.Container(width=12),
+                ft.Column([
+                    ft.Text(r['title'][:70], size=13, weight=ft.FontWeight.W_500, max_lines=2, expand=True),
+                    ft.Row([
+                        ft.Text(r.get('uploader', '')[:30], size=10, color="#94a3b8"),
+                        ft.Text(f"  •  {dur_txt}" if dur_txt else "", size=10, color="#64748b"),
+                    ]),
+                ], expand=True, spacing=4),
+                ft.IconButton(icon=ft.Icons.DOWNLOAD, icon_color="#6366f1", icon_size=24,
+                              tooltip="Descargar", on_click=dl),
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        )
+
+    def _do_channel_download(self):
+        url = self._channel_input.value.strip() if self._channel_input else ""
+        if not url or ('youtube.com' not in url.lower() and 'youtu.be' not in url.lower()):
+            self._show_snack("⚠️ Pega una URL de canal de YouTube válida", "orange")
+            return
+        try:
+            limit = int(self._channel_limit.value or 10)
+        except Exception:
+            limit = 10
+        self._show_snack(f"📡 Analizando canal (últimos {limit})...", "blue")
+        def do_fetch():
+            entries = []
+            try:
+                import yt_dlp
+                opts = {'quiet': True, 'no_warnings': True, 'extract_flat': True,
+                        'playlistend': limit, 'skip_download': True}
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                for e_ in (info.get('entries') or [])[:limit]:
+                    vid = e_.get('id') or ''
+                    u = e_.get('url') or (f"https://www.youtube.com/watch?v={vid}" if vid else '')
+                    if u: entries.append(u)
+            except Exception as ex:
+                logger.error(f"Error canal: {ex}")
+            async def after():
+                if not self._session_alive: return
+                if not entries:
+                    self._show_snack("❌ No se encontraron videos en el canal", "red")
+                    return
+                for u in entries:
+                    self.video_mgr.download(
+                        u, self.config.video_path,
+                        use_cookies=self.config.use_cookies,
+                        cookies_path=self.config.cookies_path,
+                        quality=self.config.video_quality)
+                self._show_snack(f"✅ {len(entries)} videos del canal añadidos a la cola", "green")
+                self.navigate_to("downloads")
+            self.page.run_task(after)
+        threading.Thread(target=do_fetch, daemon=True).start()
+
+    def _extract_local_audio(self):
+        def run_dialog():
+            try:
+                root = tk.Tk()
+                root.withdraw()
+                root.wm_attributes('-topmost', True)
+                root.update()
+                path = filedialog.askopenfilename(
+                    parent=root,
+                    filetypes=[("Video", "*.mp4 *.mkv *.webm *.avi *.mov"), ("Todos", "*.*")])
+                root.destroy()
+            except Exception as ex:
+                logger.error(f"Error selector audio: {ex}")
+                return
+            if not path: return
+            async def showstart():
+                self._show_snack(f"🎵 Extrayendo audio de {os.path.basename(path)[:30]}...", "blue")
+            self.page.run_task(showstart)
+            def convert():
+                try:
+                    fmt = "mp3"
+                    if hasattr(self, '_audio_format_dd') and self._audio_format_dd.value:
+                        fmt = self._audio_format_dd.value
+                    dst = os.path.splitext(path)[0] + f".{fmt}"
+                    cmd = [get_ffmpeg_path(), '-y', '-i', path, '-vn']
+                    if fmt == "mp3": cmd += ['-acodec', 'libmp3lame', '-q:a', '0']
+                    elif fmt == "m4a": cmd += ['-acodec', 'aac', '-b:a', '320k']
+                    elif fmt == "flac": cmd += ['-acodec', 'flac']
+                    else: cmd += ['-acodec', 'pcm_s16le']
+                    cmd += [dst]
+                    r = subprocess.run(cmd, capture_output=True, timeout=600)
+                    okc = r.returncode == 0 and os.path.exists(dst)
+                    msg = f"✅ Audio guardado: {os.path.basename(dst)}" if okc else "❌ Error al extraer"
+                    col = "green" if okc else "red"
+                    async def show():
+                        self._show_snack(msg, col)
+                        if hasattr(self, '_audio_status'):
+                            self._audio_status.value = msg
+                            self._audio_status.color = col
+                            self.page.update()
+                    self.page.run_task(show)
+                except Exception as ex:
+                    self.page.run_task(lambda: self._show_snack(f"❌ {str(ex)[:60]}", "red"))
+            threading.Thread(target=convert, daemon=True).start()
+        threading.Thread(target=run_dialog, daemon=True).start()
+
     def _build_settings_compact(self):
         is_dark = self.config.theme == "dark"
         bg_container = "#1e293b" if is_dark else "#ffffff"
@@ -4535,8 +4852,9 @@ class VideoFlexApp:
                 ft.Text("Apariencia", size=16, weight=ft.FontWeight.W_600, color="grey" if is_dark else "black"),
                 ft.Container(height=10),
                 ft.Row([
-                    self._theme_option_compact("Claro", ft.Icons.LIGHT_MODE, "light", not is_dark),
-                    self._theme_option_compact("Oscuro", ft.Icons.DARK_MODE, "dark", is_dark),
+                    self._theme_option_compact("Claro", ft.Icons.LIGHT_MODE, "light", self.config.theme == "light"),
+                    self._theme_option_compact("Oscuro", ft.Icons.DARK_MODE, "dark", self.config.theme == "dark"),
+                    self._theme_option_compact("Auto", ft.Icons.AUTO_MODE, "auto", self.config.theme == "auto"),
                 ], spacing=10)
             ], tight=True),
             padding=18,
@@ -4602,26 +4920,25 @@ class VideoFlexApp:
             border_radius=10
         )
         
-        async def test_connection(e):
+        def test_connection(e):
             self._show_snack("Probando conexión...", "blue")
-            success, msg = await asyncio.to_thread(
-                self.qbit.connect,
-                qbt_host.value,
-                qbt_port.value,
-                qbt_user.value,
-                qbt_pass.value
-            )
-            
-            self.settings_connection_status.content.controls[0].bgcolor = "green" if success else "red"
-            self.settings_connection_status.content.controls[2].value = "Conectado" if success else "Desconectado"
-            self.settings_connection_status.content.controls[2].color = "green" if success else "red"
-            self.settings_connection_status.content.controls[4].value = msg[:40] if not success else ""
-            self.settings_connection_status.bgcolor = with_opacity(0.1, "green" if success else "red")
-            self.settings_connection_status.border = ft.Border.all(1, "green" if success else "red")
-            
-            self._show_snack(msg, "green" if success else "red")
-            self._update_status_ui()
-            self.page.update()
+            def do_test():
+                success, msg = self.qbit.connect(qbt_host.value, qbt_port.value, qbt_user.value, qbt_pass.value)
+                async def apply_ui():
+                    try:
+                        self.settings_connection_status.content.controls[0].bgcolor = "green" if success else "red"
+                        self.settings_connection_status.content.controls[2].value = "Conectado" if success else "Desconectado"
+                        self.settings_connection_status.content.controls[2].color = "green" if success else "red"
+                        self.settings_connection_status.content.controls[4].value = msg[:40] if not success else ""
+                        self.settings_connection_status.bgcolor = with_opacity(0.1, "green" if success else "red")
+                        self.settings_connection_status.border = ft.Border.all(1, "green" if success else "red")
+                    except Exception:
+                        pass
+                    self._show_snack(msg, "green" if success else "red")
+                    self._update_status_ui()
+                self.page.run_task(apply_ui)
+            threading.Thread(target=do_test, daemon=True).start()
+
         
         qb_section = ft.Container(
             content=ft.Column([
@@ -5004,8 +5321,13 @@ class VideoFlexApp:
     
     def _change_theme(self, theme):
         self.config.theme = theme
-        self.page.theme_mode = ft.ThemeMode.DARK if theme == "dark" else ft.ThemeMode.LIGHT
-        self.page.bgcolor = "#0f172a" if theme == "dark" else "#f8fafc"
+        if theme == "auto":
+            _h = datetime.now().hour
+            _eff = "dark" if _h >= 20 or _h < 7 else "light"
+        else:
+            _eff = theme
+        self.page.theme_mode = ft.ThemeMode.DARK if _eff == "dark" else ft.ThemeMode.LIGHT
+        self.page.bgcolor = "#0f172a" if _eff == "dark" else "#f8fafc"
         self.save_config()
         # Reconstruir layout para refrescar sidebar y tema
         self.page.controls.clear()
