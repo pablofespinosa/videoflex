@@ -2092,22 +2092,34 @@ class VideoFlexApp:
             self.page.window_close()
 
     def navigate_to(self, section: str):
-        self._current_section = section
-        self.content_area.controls.clear()
-        builders = {
-            "dashboard": self._build_dashboard_compact,
-            "torrents": self._build_torrents_compact,
-            "videos": self._build_videos_compact,
-            "explorar": self._build_explorar_compact,
-            "downloads": self._build_downloads_compact,
-            "history": self._build_history_compact,
-            "settings": self._build_settings_compact,
-            "about": self._build_about_compact,
-            "help": lambda: self._show_help_section_compact(),
-        }
-        if section in builders:
-            builders[section]()
-        self.page.update()
+        try:
+            cambiar = getattr(self, "_last_built_section", None) != section
+            self._current_section = section
+            if cambiar:
+                self.page.controls.clear()
+                self._build_layout()
+                self._last_built_section = section
+            self.content_area.controls.clear()
+            builders = {
+                "dashboard": self._build_dashboard_compact,
+                "torrents": self._build_torrents_compact,
+                "videos": self._build_videos_compact,
+                "downloads": self._build_downloads_compact,
+                "history": self._build_history_compact,
+                "settings": self._build_settings_compact,
+                "about": self._build_about_compact,
+                "explorar": self._build_explorar_compact,
+                "help": lambda: self._show_help_section_compact(),
+            }
+            if section in builders:
+                builders[section]()
+            self.page.update()
+        except Exception as e:
+            logger.error(f"Error en navigate_to({section}): {e}")
+            try:
+                self._show_snack(f"❌ Error al abrir sección: {str(e)[:60]}", "red")
+            except Exception:
+                pass
 
     # ═══════════════════════════════════════════════════════════
     # MONITOREO EN SEGUNDO PLANO
@@ -4088,13 +4100,17 @@ class VideoFlexApp:
                 border_radius=8, alignment=ft.Alignment(0, 0))
 
         def dl(e):
-            self._show_snack("⬇️ Añadiendo a descargas...", "blue")
-            self.video_mgr.download(
-                r['url'], self.config.video_path,
-                use_cookies=self.config.use_cookies,
-                cookies_path=self.config.cookies_path,
-                quality=self.config.video_quality)
-            self.navigate_to("downloads")
+            try:
+                self._show_snack(f"⬇️ Descargando: {r['title'][:40]}...", "blue")
+                self.video_mgr.download(
+                    r['url'], self.config.video_path,
+                    use_cookies=self.config.use_cookies,
+                    cookies_path=self.config.cookies_path,
+                    quality=self.config.video_quality)
+                self.navigate_to("downloads")
+                self._show_snack("✅ Añadido a la cola de descargas", "green")
+            except Exception as ex:
+                self._show_snack(f"❌ Error al descargar: {str(ex)[:60]}", "red")
 
         return ft.Container(
             padding=10, bgcolor="#334155" if is_dark else "#e2e8f0", border_radius=10,
