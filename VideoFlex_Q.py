@@ -2108,12 +2108,16 @@ class VideoFlexApp:
                 "history": self._build_history_compact,
                 "settings": self._build_settings_compact,
                 "about": self._build_about_compact,
-                "explorar": self._build_explorar_compact,
-                "help": lambda: self._show_help_section_compact(),
+                "explorar": getattr(self, "_build_explorar_compact", None),
+                "help": self._show_help_section_compact,
             }
-            if section in builders:
-                builders[section]()
+            fn = builders.get(section)
+            if fn: fn()
             self.page.update()
+        except Exception as e:
+            logger.error(f"navigate_to({section}): {e}")
+            try: self._show_snack(f"Error: {str(e)[:60]}", "red")
+            except Exception: pass
         except Exception as e:
             logger.error(f"Error en navigate_to({section}): {e}")
             try:
@@ -2162,7 +2166,7 @@ class VideoFlexApp:
                         elif self._current_section == "dashboard":
                             async def refresh_dashboard():
                                 if self._session_alive:
-                                    self.navigate_to("dashboard")
+                                    self._update_status_ui()
                             _safe_run_task(refresh_dashboard)
                     if self._session_alive:
                         self._update_status_ui()
@@ -2331,7 +2335,7 @@ class VideoFlexApp:
                     elif self._current_section == "videos":
                         self.page.update()
                     elif self._current_section == "dashboard":
-                        self.navigate_to("dashboard")
+                        self.page.update()
                     elif hasattr(self, 'page') and self.page:
                         self.page.update()
                 except Exception as e:
@@ -2395,17 +2399,17 @@ class VideoFlexApp:
 
         quick_actions = ft.Container(
             content=ft.Row([
-                ft.ElevatedButton(
+                ft.Button(
                     "Nuevo Video", icon=ft.Icons.ADD_LINK,
                     on_click=lambda e: self.navigate_to("videos"),
                     bgcolor="#6366f1", color="white", height=38
                 ),
-                ft.ElevatedButton(
+                ft.Button(
                     "Nuevo Torrent", icon=ft.Icons.ADD_CIRCLE,
                     on_click=lambda e: self.navigate_to("torrents"),
                     bgcolor="#475569", color="white", height=38
                 ),
-                ft.ElevatedButton(
+                ft.Button(
                     "Ver Descargas", icon=ft.Icons.FOLDER_OPEN,
                     on_click=lambda e: self._open_downloads_folder(),
                     bgcolor="#059669", color="white", height=38
@@ -2725,7 +2729,7 @@ class VideoFlexApp:
             ]
             if btn:
                 items += [ft.Container(height=14),
-                          ft.ElevatedButton(btn, icon=ft.Icons.SETTINGS, on_click=btn_fn,
+                          ft.Button(btn, icon=ft.Icons.SETTINGS, on_click=btn_fn,
                                             bgcolor="#6366f1", color="white", height=38)]
             return ft.Container(
                 content=ft.Column(items, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0, tight=True),
@@ -2777,7 +2781,7 @@ class VideoFlexApp:
                             ft.Container(height=12),
                             ft.Row([
                                 self.magnet_input,
-                                ft.ElevatedButton("Añadir", icon=ft.Icons.ADD, on_click=add_magnet_improved,
+                                ft.Button("Añadir", icon=ft.Icons.ADD, on_click=add_magnet_improved,
                                                   bgcolor="#6366f1", color="white", height=44)
                             ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                             ft.Container(height=16),
@@ -2793,12 +2797,12 @@ class VideoFlexApp:
                                     ft.Container(expand=True),
                                     site_dropdown,
                                     ft.Container(width=8),
-                                    ft.ElevatedButton("Copiar URL", icon=ft.Icons.COPY,
+                                    ft.Button("Copiar URL", icon=ft.Icons.COPY,
                                                       on_click=lambda e: self._copy_site_url(
                                                           sites.get(site_dropdown.value, "")),
                                                       bgcolor="#334155", color="white", height=38),
                                     ft.Container(width=8),
-                                    ft.ElevatedButton("Ir al Sitio", icon=ft.Icons.OPEN_IN_NEW,
+                                    ft.Button("Ir al Sitio", icon=ft.Icons.OPEN_IN_NEW,
                                                       on_click=lambda e: self._open_site_url(
                                                           sites.get(site_dropdown.value, "")),
                                                       bgcolor="#6366f1", color="white", height=38),
@@ -2810,7 +2814,7 @@ class VideoFlexApp:
                     ft.Row([
                         ft.Text("Descargas Activas", size=17, weight=ft.FontWeight.W_600),
                         ft.Container(expand=True),
-                        ft.ElevatedButton("Limpiar Completados", icon=ft.Icons.DELETE_SWEEP,
+                        ft.Button("Limpiar Completados", icon=ft.Icons.DELETE_SWEEP,
                                           on_click=clear_finished, bgcolor="#dc2626",
                                           color="white", height=36,
                                           tooltip="Elimina los torrents completados (100%)"),
@@ -3175,13 +3179,13 @@ class VideoFlexApp:
                     ft.Row([
                         ft.Text("Descargar Videos", size=24, weight=ft.FontWeight.BOLD),
                         ft.Container(expand=True),
-                        ft.ElevatedButton("Actualizar yt-dlp", icon=ft.Icons.UPDATE, on_click=update_ytdlp,
+                        ft.Button("Actualizar yt-dlp", icon=ft.Icons.UPDATE, on_click=update_ytdlp,
                                           bgcolor="#c2410c", color="white", height=40)
                     ]),
                     ft.Container(height=16),
                     ft.Row([
                         url_input, quality_dropdown,
-                        ft.ElevatedButton("Descargar", icon=ft.Icons.DOWNLOAD, on_click=download_click,
+                        ft.Button("Descargar", icon=ft.Icons.DOWNLOAD, on_click=download_click,
                                           bgcolor="#6366f1", color="white", height=48)
                     ], spacing=10),
                     ft.Container(height=10),
@@ -3602,7 +3606,7 @@ class VideoFlexApp:
 
             dialog.actions = [
                 ft.TextButton("Cancelar", on_click=do_cancel),
-                ft.ElevatedButton("Sí, limpiar", bgcolor="#dc2626", color="white", on_click=do_confirm),
+                ft.Button("Sí, limpiar", bgcolor="#dc2626", color="white", on_click=do_confirm),
             ]
             self.page.overlay.append(dialog)
             dialog.open = True
@@ -3646,8 +3650,8 @@ class VideoFlexApp:
                 shape=ft.RoundedRectangleBorder(radius=12),
                 actions=[
                     ft.TextButton("Cancelar", on_click=lambda ev: (setattr(dialog, 'open', False) or self.page.update())),
-                    ft.ElevatedButton("CSV", icon=ft.Icons.TABLE_CHART, on_click=export_csv),
-                    ft.ElevatedButton("JSON", icon=ft.Icons.CODE, on_click=export_json),
+                    ft.Button("CSV", icon=ft.Icons.TABLE_CHART, on_click=export_csv),
+                    ft.Button("JSON", icon=ft.Icons.CODE, on_click=export_json),
                 ]
             )
             self.page.overlay.append(dialog)
@@ -3826,7 +3830,7 @@ class VideoFlexApp:
 
             dialog.actions = [
                 ft.TextButton("Cancelar", on_click=do_cancel),
-                ft.ElevatedButton(f"Descargar {count} videos", bgcolor="#6366f1", color="white", on_click=do_confirm),
+                ft.Button(f"Descargar {count} videos", bgcolor="#6366f1", color="white", on_click=do_confirm),
             ]
             self.page.overlay.append(dialog)
             dialog.open = True
@@ -3977,7 +3981,7 @@ class VideoFlexApp:
                             ft.Container(height=10),
                             ft.Row([
                                 self._search_input,
-                                ft.ElevatedButton("Buscar", icon=ft.Icons.SEARCH,
+                                ft.Button("Buscar", icon=ft.Icons.SEARCH,
                                                   on_click=lambda e: self._do_video_search(),
                                                   bgcolor="#6366f1", color="white", height=48),
                             ], spacing=10),
@@ -3998,7 +4002,7 @@ class VideoFlexApp:
                             ft.Row([
                                 self._channel_input,
                                 self._channel_limit,
-                                ft.ElevatedButton("Descargar", icon=ft.Icons.DOWNLOAD,
+                                ft.Button("Descargar", icon=ft.Icons.DOWNLOAD,
                                                   on_click=lambda e: self._do_channel_download(),
                                                   bgcolor="#ef4444", color="white", height=44),
                             ], spacing=10),
@@ -4017,7 +4021,7 @@ class VideoFlexApp:
                             ], spacing=8),
                             ft.Container(height=10),
                             ft.Row([
-                                ft.ElevatedButton("Elegir archivo…", icon=ft.Icons.FOLDER_OPEN,
+                                ft.Button("Elegir archivo…", icon=ft.Icons.FOLDER_OPEN,
                                                   on_click=lambda e: self._extract_local_audio(),
                                                   bgcolor="#10b981", color="white", height=40),
                                 ft.Container(width=10),
@@ -4308,7 +4312,7 @@ class VideoFlexApp:
                 ft.Row([
                     ft.Text("qBittorrent", size=16, weight=ft.FontWeight.W_600),
                     ft.Container(expand=True),
-                    ft.ElevatedButton("Probar Conexión", icon=ft.Icons.NETWORK_CHECK, on_click=test_connection,
+                    ft.Button("Probar Conexión", icon=ft.Icons.NETWORK_CHECK, on_click=test_connection,
                                       bgcolor="#6366f1", color="white", height=40)
                 ]),
                 ft.Container(height=10),
@@ -4521,7 +4525,7 @@ class VideoFlexApp:
                     qb_section, ft.Container(height=14),
                     paths_section, ft.Container(height=14),
                     advanced_section, ft.Container(height=24),
-                    ft.ElevatedButton("💾 Guardar Configuración", icon=ft.Icons.SAVE, on_click=save,
+                    ft.Button("💾 Guardar Configuración", icon=ft.Icons.SAVE, on_click=save,
                                       bgcolor="#6366f1", color="white", height=52, expand=True)
                 ], spacing=0, tight=True)
             )
@@ -4628,11 +4632,11 @@ class VideoFlexApp:
                         border=ft.Border.all(1, border_col),
                         content=ft.Column([
                             ft.Row([
-                                ft.ElevatedButton("Ayuda  F1", icon=ft.Icons.HELP,
+                                ft.Button("Ayuda  F1", icon=ft.Icons.HELP,
                                                   on_click=lambda e: self._show_help_dialog(),
                                                   bgcolor="#6366f1", color="white", height=34),
                                 ft.Container(width=8),
-                                ft.ElevatedButton("GitHub", icon=ft.Icons.CODE,
+                                ft.Button("GitHub", icon=ft.Icons.CODE,
                                                   on_click=lambda e: webbrowser.open(APP_GITHUB_URL),
                                                   bgcolor="#24292e", color="white", height=34),
                             ], spacing=0, wrap=True, run_spacing=6),
@@ -4773,11 +4777,11 @@ class VideoFlexApp:
             ),
             ft.Container(height=20),
             ft.Row([
-                ft.ElevatedButton("Documentación yt-dlp", icon=ft.Icons.OPEN_IN_NEW,
+                ft.Button("Documentación yt-dlp", icon=ft.Icons.OPEN_IN_NEW,
                                   on_click=lambda e: webbrowser.open("https://github.com/yt-dlp/yt-dlp"),
                                   bgcolor="#475569", color="white", height=42),
                 ft.Container(width=12),
-                ft.ElevatedButton("Ayuda Rápida", icon=ft.Icons.HELP_OUTLINE,
+                ft.Button("Ayuda Rápida", icon=ft.Icons.HELP_OUTLINE,
                                   on_click=self._show_help_dialog, bgcolor="#6366f1", color="white", height=42),
             ]),
         ], spacing=0, scroll=ft.ScrollMode.AUTO)
@@ -4925,4 +4929,4 @@ def main(page: ft.Page):
 
 
 if __name__ == "__main__":
-    ft.app(target=main)
+    ft.run(main)
