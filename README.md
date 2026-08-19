@@ -2,7 +2,7 @@
 
 Gestor de descargas todo-en-uno: torrents (qBittorrent) + videos de YouTube/TikTok/Instagram (yt-dlp).
 
-**Versión actual: 1.6.8** · Licencia GPL-3.0 · © PFE Computación 2025-2026
+**Versión actual: 1.6.9** · Licencia GPL-3.0 · © PFE Computación 2025-2026
 
 ## ✨ Características
 

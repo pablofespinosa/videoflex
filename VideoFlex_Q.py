@@ -51,7 +51,7 @@ from collections import deque
 # CONFIGURACIÓN GLOBAL
 # ═══════════════════════════════════════════════════════════════
 APP_NAME = "VideoFlex"
-APP_VERSION = "1.6.8"
+APP_VERSION = "1.6.9"
 APP_AUTHOR = "Pablo F. Espinosa"
 APP_COMPANY = "PFE Computación"
 APP_YEAR = "2025-2026"
@@ -1591,9 +1591,8 @@ class VideoFlexApp:
         logo_container = ft.Container(
             width=72, height=72, border_radius=18,
             content=ft.Container(
-                width=72, height=72, border_radius=18, bgcolor=self._accent(),
-                alignment=ft.Alignment(0, 0),
-                content=ft.Icon(ft.Icons.BOLT, size=38, color="white"),
+                width=72, height=72, border_radius=18,
+                content=self._logo_widget(72, 18),
                 shadow=ft.BoxShadow(
                     spread_radius=0, blur_radius=30, color=self._accent() + "60",
                     offset=ft.Offset(0, 0),
@@ -1915,6 +1914,16 @@ class VideoFlexApp:
         self.navigate_to(self._current_section)
         self.page.update()
         self._show_snack("🎨 Color de acento actualizado", "green")
+
+    def _logo_widget(self, size, radius):
+        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "logo.png")
+        if os.path.exists(logo_path):
+            return ft.Image(src=logo_path, width=size, height=size, fit="cover", border_radius=radius)
+        return ft.Container(
+            width=size, height=size, border_radius=radius, bgcolor=self._accent(),
+            alignment=ft.Alignment(0, 0),
+            content=ft.Icon(ft.Icons.BOLT, size=int(size * 0.5), color="white"),
+        )
 
     def _accent(self):
         return getattr(getattr(self, "config", None), "accent", "#6366f1")
@@ -4592,11 +4601,7 @@ class VideoFlexApp:
                 padding=ft.Padding.symmetric(horizontal=20, vertical=12),
                 content=ft.Column([
                     ft.Row([
-                        ft.Container(
-                            content=ft.Icon(ft.Icons.BOLT, size=32, color="white"),
-                            width=60, height=60, bgcolor=self._accent(), border_radius=16,
-                            alignment=ft.Alignment(0, 0),
-                        ),
+                        self._logo_widget(60, 16),
                         ft.Container(width=14),
                         ft.Column([
                             ft.Text(APP_NAME, size=24, weight=ft.FontWeight.BOLD),
