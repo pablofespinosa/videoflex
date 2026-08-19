@@ -51,7 +51,7 @@ from collections import deque
 # CONFIGURACIÓN GLOBAL
 # ═══════════════════════════════════════════════════════════════
 APP_NAME = "VideoFlex"
-APP_VERSION = "1.6.10"
+APP_VERSION = "1.6.11"
 APP_AUTHOR = "Pablo F. Espinosa"
 APP_COMPANY = "PFE Computación"
 APP_YEAR = "2025-2026"
@@ -1492,6 +1492,12 @@ class VideoFlexApp:
             _h1 = datetime.now().hour
             _t1 = "dark" if _h1 >= 20 or _h1 < 7 else "light"
         self.page.bgcolor = "#0f172a" if _t1 == "dark" else "#f8fafc"
+        try:
+            _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "icon.ico")
+            if os.path.exists(_ico):
+                self.page.window.icon = _ico
+        except Exception:
+            pass
         try:
             self.page.window.bgcolor = ft.Colors.TRANSPARENT
             self.page.window.min_width = 900
