@@ -943,7 +943,19 @@ class VideoManager:
     def cancel_download(self, download_id: int) -> bool:
         with self._lock:
             if download_id in self._downloads:
-                self._downloads[download_id].cancel()
+                d = self._downloads[download_id]
+                d._cancel_requested = True
+                proc = getattr(d, 'subprocess', None)
+                if proc and proc.poll() is None:
+                    try:
+                        proc.terminate()
+                        proc.wait(timeout=3)
+                    except Exception:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                d.cancel()
                 return True
             return False
 
@@ -1138,6 +1150,9 @@ class VideoManager:
                     []]
             rc = 1
             buf = deque(maxlen=8)
+            cancelado = False
+            pausado = False
+            _last_ui = 0.0
             for cfg in cfgs:
                 cmd = [sys.executable, "-u", "-m", "yt_dlp", "--js-runtime", "node",
                        "--remote-components", "ejs:github", "--newline",
@@ -1152,10 +1167,19 @@ class VideoManager:
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                         text=True, encoding="utf-8", errors="replace",
                                         env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"})
+                download.subprocess = proc
                 for line in proc.stdout:
                     _lf.write(f"{datetime.now().strftime('%H:%M:%S')} {line.rstrip()}\n")
                     _lf.flush()
                     buf.append(line.rstrip())
+                    if getattr(download, "_cancel_requested", False):
+                        cancelado = True
+                        proc.terminate()
+                        break
+                    if getattr(download, "_pause_requested", False):
+                        pausado = True
+                        proc.terminate()
+                        break
                     if not listo and ("[Merger]" in line or "[Fixup" in line or
                                       ("[download]" in line and " in 00:" in line)):
                         listo = True
@@ -1179,7 +1203,9 @@ class VideoManager:
                             download.speed = ""
                             download.progress = 100
                             self._notify(force=True)
-                        self._notify()
+                        if time.time() - _last_ui >= 1.0:
+                            _last_ui = time.time()
+                            self._notify()
                     if "Destination:" in line:
                         _dest = line.split("Destination:")[-1].strip()
                         download.name = os.path.basename(_dest)
@@ -1187,9 +1213,15 @@ class VideoManager:
                         self._notify()
                 proc.wait()
                 rc = proc.returncode
-                if rc == 0:
+                if cancelado or pausado or rc == 0:
                     break
-            if rc == 0:
+            if pausado:
+                download.status = DownloadStatus.PAUSED
+                download.speed = ""
+                download._pause_requested = False
+            elif cancelado:
+                pass
+            elif rc == 0:
                 download.status = DownloadStatus.COMPLETED
                 download.progress = 100
                 download.speed = ""
@@ -1201,7 +1233,7 @@ class VideoManager:
             logger.error(f"Error descarga: {e}")
             download.status = DownloadStatus.ERROR
             download.error_msg = str(e)
-            self._notify()
+            self._notify(force=True)
         finally:
             _lf.close()
     def _get_path_from_config(self):
@@ -3155,10 +3187,20 @@ class VideoFlexApp:
         self._selected_download_id = download_id
 
     def _toggle_pause_download(self, d: VideoDownload):
-        if self.video_mgr.pause_download(d.id):
-            status = "pausada" if d.status == DownloadStatus.PAUSED else "reanudada"
-            self._show_snack(f"Descarga {status}", "blue")
-            self.page.update()
+        if d.status == DownloadStatus.PAUSED:
+            d.status = DownloadStatus.DOWNLOADING
+            threading.Thread(target=self.video_mgr._download_thread, args=(d.id,), daemon=True).start()
+            self._show_snack("▶️ Descarga reanudada", "blue")
+        else:
+            d._pause_requested = True
+            proc = getattr(d, "subprocess", None)
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+            self._show_snack("⏸️ Descarga pausada", "orange")
+        self.page.update()
 
     # ═══════════════════════════════════════════════════════════
     # HISTORIAL
