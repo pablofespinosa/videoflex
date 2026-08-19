@@ -1248,6 +1248,8 @@ class VideoManager:
 class VideoFlexApp:
     def __init__(self, page: ft.Page):
         self.page = page
+        self._splash_status = ft.Text("Inicializando sistema...", color="#94a3b8", size=11)
+        self._splash_progress = ft.ProgressBar(width=320, color="#6366f1", bgcolor="#334155")
         self.qbit = QBittorrentAPI()
         self.config = self.load_config()
         self.video_mgr = VideoManager(page=page, max_concurrent=self.config.max_concurrent_downloads)
@@ -1417,6 +1419,22 @@ class VideoFlexApp:
         splash = self._create_splash()
         self.page.add(splash)
         self.page.update()
+        await asyncio.sleep(0.3)
+        
+        # Animar mensajes de estado
+        messages = [
+            "Cargando módulos...",
+            "Inicializando servicios...",
+            "Conectando a qBittorrent...",
+            "Preparando interfaz...",
+        ]
+        async def update_status():
+            for msg in messages:
+                self._splash_status.value = msg
+                self._splash_progress.value = (messages.index(msg) + 1) / len(messages)
+                self.page.update()
+                await asyncio.sleep(0.8)
+        status_task = asyncio.create_task(update_status())
         await asyncio.sleep(0.2)
         try:
             sw = self.page.window.screen_width or 1920
@@ -1437,6 +1455,17 @@ class VideoFlexApp:
         for _ in range(25):
             await asyncio.sleep(0.1)
         await prefetch_task
+        await status_task
+        self._splash_status.value = "✓ ¡Listo!"
+        self._splash_progress.value = 1.0
+        self.page.update()
+        await asyncio.sleep(0.9)
+        try:
+            splash.opacity = 0
+            self.page.update()
+            await asyncio.sleep(0.7)
+        except Exception:
+            pass
         self.page.controls.clear()
         self.page.update()
         await asyncio.sleep(0.05)
@@ -1545,73 +1574,99 @@ class VideoFlexApp:
             logger.error(f"Error conectando a qBittorrent: {e}")
 
     def _create_splash(self):
+        # Logo con efecto glow
+        logo_container = ft.Container(
+            width=72, height=72, border_radius=18,
+            content=ft.Container(
+                width=72, height=72, border_radius=18, bgcolor="#6366f1",
+                alignment=ft.Alignment(0, 0),
+                content=ft.Icon(ft.Icons.BOLT, size=38, color="white"),
+                shadow=ft.BoxShadow(
+                    spread_radius=0, blur_radius=30, color="#6366f160",
+                    offset=ft.Offset(0, 0),
+                ),
+            ),
+        )
+        
         about_card = ft.Container(
-            width=400,
-            padding=ft.Padding.symmetric(horizontal=32, vertical=24),
+            width=420,
+            padding=ft.Padding.symmetric(horizontal=32, vertical=28),
             bgcolor="#1e293b",
-            border_radius=16,
+            border_radius=20,
             border=ft.Border.all(1.5, "#334155"),
             shadow=ft.BoxShadow(
-                spread_radius=0, blur_radius=40, color="#00000080", offset=ft.Offset(0, 8),
+                spread_radius=0, blur_radius=50, color="#00000090", offset=ft.Offset(0, 12),
             ),
             content=ft.Column([
-                ft.Row([
-                    ft.Container(
-                        width=52, height=52, border_radius=14, bgcolor="#6366f1",
-                        alignment=ft.Alignment(0, 0),
-                        content=ft.Icon(ft.Icons.BOLT, size=28, color="white"),
-                    ),
-                    ft.Container(width=14),
-                    ft.Column([
-                        ft.Text(APP_NAME, size=24, weight=ft.FontWeight.BOLD, color="white"),
-                        ft.Text(APP_DESCRIPTION, size=10, color="#94a3b8"),
-                    ], spacing=2, tight=True),
-                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                ft.Container(height=16),
+                # Header centrado con logo grande
+                ft.Container(
+                    content=logo_container,
+                    alignment=ft.Alignment(0, 0),
+                ),
+                ft.Container(height=12),
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text(APP_NAME, size=28, weight=ft.FontWeight.BOLD, color="white"),
+                        ft.Text(APP_DESCRIPTION, size=11, color="#94a3b8"),
+                    ], spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    alignment=ft.Alignment(0, 0),
+                ),
+                ft.Container(height=20),
                 ft.Container(height=1, bgcolor="#334155"),
-                ft.Container(height=16),
+                ft.Container(height=20),
+                # Info en grid 2x2
                 ft.Row([
                     ft.Column([
                         ft.Text("Versión", size=9, color="#6366f1", weight=ft.FontWeight.W_600),
-                        ft.Text(APP_VERSION, size=12, color="white"),
-                    ], spacing=2, expand=True),
+                        ft.Container(
+                            content=ft.Text(APP_VERSION, size=13, color="white", weight=ft.FontWeight.W_600),
+                            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                            bgcolor="#6366f120", border_radius=8,
+                        ),
+                    ], spacing=4, expand=True),
                     ft.Column([
                         ft.Text("Desarrollado por", size=9, color="#6366f1", weight=ft.FontWeight.W_600),
                         ft.Text(APP_AUTHOR, size=12, color="white"),
-                    ], spacing=2, expand=True),
+                    ], spacing=4, expand=True),
                 ]),
-                ft.Container(height=8),
-                ft.Text("Empresa", size=9, color="#6366f1", weight=ft.FontWeight.W_600),
-                ft.Text(f"{APP_COMPANY}  ·  © {APP_YEAR}", size=12, color="white"),
-                ft.Container(height=16),
+                ft.Container(height=12),
+                ft.Text(f"{APP_COMPANY}  ·  © {APP_YEAR}", size=11, color="#64748b"),
+                ft.Container(height=20),
                 ft.Container(height=1, bgcolor="#334155"),
-                ft.Container(height=14),
-                ft.Text(f"Novedades v{APP_VERSION}", size=9, color="#6366f1", weight=ft.FontWeight.W_600),
-                ft.Container(height=6),
+                ft.Container(height=16),
+                # Novedades con iconos de check
+                ft.Text(f"Novedades v{APP_VERSION}", size=10, color="#6366f1", weight=ft.FontWeight.W_700),
+                ft.Container(height=10),
                 *[
                     ft.Row([
-                        ft.Icon(ft.Icons.STAR, size=11, color="#fbbf24"),
+                        ft.Container(
+                            width=18, height=18, border_radius=9, bgcolor="#10b98120",
+                            alignment=ft.Alignment(0, 0),
+                            content=ft.Icon(ft.Icons.CHECK, size=11, color="#10b981"),
+                        ),
                         ft.Text(txt, size=11, color="#cbd5e1"),
-                    ], spacing=6)
+                    ], spacing=8)
                     for txt in [
                         "Sistema de colas inteligente",
                         "Notificaciones nativas del sistema",
                         "Historial con búsqueda y filtros",
                         "Monitor de espacio en disco",
-                        "Exportación a CSV",
                     ]
                 ],
-                ft.Container(height=18),
-                ft.Row([
-                    ft.ProgressRing(color="#6366f1", width=16, height=16, stroke_width=2),
-                    ft.Container(width=10),
-                    ft.Text("Inicializando sistema…", color="#94a3b8", size=11),
-                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            ], spacing=0, tight=True, horizontal_alignment=ft.CrossAxisAlignment.START),
+                ft.Container(height=20),
+                # Barra de progreso animada
+                self._splash_progress,
+                ft.Container(height=10),
+                ft.Container(
+                    content=self._splash_status,
+                    alignment=ft.Alignment(0, 0),
+                ),
+            ], spacing=0, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         )
         return ft.Container(
             expand=True, bgcolor="#0f172a", alignment=ft.Alignment(0, 0),
             padding=ft.Padding.all(10), content=about_card,
+            animate_opacity=ft.Animation(600, "easeOut"),
         )
 
     def _build_layout(self):
