@@ -51,7 +51,7 @@ from collections import deque
 # CONFIGURACIÓN GLOBAL
 # ═══════════════════════════════════════════════════════════════
 APP_NAME = "VideoFlex"
-APP_VERSION = "1.6.5"
+APP_VERSION = "1.6.6"
 APP_AUTHOR = "Pablo F. Espinosa"
 APP_COMPANY = "PFE Computación"
 APP_YEAR = "2025-2026"
@@ -473,6 +473,7 @@ class AppConfig:
     subtitles_format: str = "srt"
     embed_subtitles: bool = False
     auto_convert_to_mp4: bool = True
+    accent: str = "#6366f1"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1357,6 +1358,7 @@ class VideoFlexApp:
                     config.video_path = data.get('paths', {}).get('video', config.video_path)
                     config.torrent_path = data.get('paths', {}).get('torrent', config.torrent_path)
                     config.theme = data.get('theme', 'dark')
+                    config.accent = data.get('accent', '#6366f1')
                     config.use_cookies = data.get('use_cookies', False)
                     config.cookies_path = data.get('cookies_path', str(Path.home() / ".videoflex_cookies.txt"))
                     config.video_quality = data.get('video_quality', '1080')
@@ -1398,6 +1400,7 @@ class VideoFlexApp:
                     "torrent": self.config.torrent_path
                 },
                 "theme": self.config.theme,
+                "accent": getattr(self.config, "accent", "#6366f1"),
                 "use_cookies": self.config.use_cookies,
                 "cookies_path": self.config.cookies_path,
                 "video_quality": self.config.video_quality,
@@ -4276,7 +4279,10 @@ class VideoFlexApp:
                     if result.returncode == 0:
                         folder = result.stdout.strip()
                         if folder:
-                            self.page.run_task(lambda: callback(folder) or self.page.update())
+                            async def _do_cb():
+                                callback(folder)
+                                self.page.update()
+                            self.page.run_task(_do_cb)
                     return
                 except FileNotFoundError:
                     pass
@@ -4291,7 +4297,10 @@ class VideoFlexApp:
                     folder = filedialog.askdirectory(parent=root)
                     root.destroy()
                     if folder:
-                        self.page.run_task(lambda: callback(folder) or self.page.update())
+                        async def _do_cb(cb=callback, f=folder):
+                            cb(f)
+                            self.page.update()
+                        self.page.run_task(_do_cb)
                 except Exception as ex:
                     logger.error(f"Error tkinter: {ex}")
 
@@ -4300,18 +4309,67 @@ class VideoFlexApp:
         def pick_video_path(e):
             def update_path(folder):
                 path_video.value = folder
-                self._show_snack("Ruta videos actualizada", "green")
-                self.page.update()
-
+                self.config.video_path = folder
+                self.save_config()
+                self._show_snack("💾 Ruta videos guardada", "green")
             select_folder_flet(update_path)
 
         def pick_torrent_path(e):
             def update_path(folder):
                 path_torrent.value = folder
-                self._show_snack("Ruta torrents actualizada", "green")
-                self.page.update()
-
+                self.config.torrent_path = folder
+                self.save_config()
+                self._show_snack("💾 Ruta torrents guardada", "green")
             select_folder_flet(update_path)
+
+        def _save_paths_now(e=None):
+            v = (path_video.value or "").strip()
+            t = (path_torrent.value or "").strip()
+            changed = False
+            if v and v != self.config.video_path:
+                self.config.video_path = v
+                changed = True
+            if t and t != self.config.torrent_path:
+                self.config.torrent_path = t
+                changed = True
+            if changed:
+                self.save_config()
+                logger.info(f"Rutas guardadas: video={v} torrent={t}")
+                self._show_snack("💾 Rutas guardadas", "green")
+            else:
+                self._show_snack("Sin cambios", "blue")
+            self.page.update()
+
+        try:
+            path_video.on_submit = _save_paths_now
+            path_video.on_blur = _save_paths_now
+            path_torrent.on_submit = _save_paths_now
+            path_torrent.on_blur = _save_paths_now
+        except Exception:
+            pass
+
+        def _save_paths_from_fields(e=None):
+            v = (path_video.value or "").strip()
+            t = (path_torrent.value or "").strip()
+            changed = False
+            if v and v != self.config.video_path:
+                self.config.video_path = v
+                changed = True
+            if t and t != self.config.torrent_path:
+                self.config.torrent_path = t
+                changed = True
+            if changed:
+                self.save_config()
+                self._show_snack("💾 Rutas guardadas", "green")
+            self.page.update()
+
+        try:
+            path_video.on_submit = _save_paths_from_fields
+            path_video.on_blur = _save_paths_from_fields
+            path_torrent.on_submit = _save_paths_from_fields
+            path_torrent.on_blur = _save_paths_from_fields
+        except Exception:
+            pass
 
         paths_section = ft.Container(
             content=ft.Column([
@@ -4328,6 +4386,9 @@ class VideoFlexApp:
                     ft.IconButton(icon=ft.Icons.FOLDER_OPEN, tooltip="Seleccionar carpeta",
                                   on_click=pick_torrent_path, icon_size=20)
                 ]),
+                ft.Container(height=10),
+                ft.Button("💾 Guardar rutas", icon=ft.Icons.SAVE, on_click=_save_paths_now,
+                          bgcolor="#10b981", color="white", height=36),
             ], tight=True),
             padding=18, bgcolor=bg_container, border_radius=12,
             border=ft.Border.all(1, with_opacity(0.1, "white" if is_dark else "black"))
