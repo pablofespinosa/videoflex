@@ -898,7 +898,7 @@ class VideoManager:
         self._last_notify_time = 0
         self._max_concurrent = max_concurrent
         self._download_queue: List[int] = []
-        self._queue_lock = threading.Lock()
+        self._queue_lock = threading.RLock()
         self._active_count = 0
         self._config_ref = None
 
@@ -1089,6 +1089,7 @@ class VideoManager:
                 scheduled_time=scheduled_time,
             )
             self._downloads[download_id] = download
+            download.save_path = path
 
         try:
             if not os.path.exists(path):
@@ -1107,7 +1108,7 @@ class VideoManager:
             return download_id
 
         with self._queue_lock:
-            if self._active_count < self._max_concurrent:
+            if self._active_count < max(1, self._max_concurrent):
                 self._start_download_thread(download_id)
             else:
                 download.status = DownloadStatus.QUEUED
@@ -1118,404 +1119,91 @@ class VideoManager:
     def _download_thread(self, download_id: int):
         download = self._downloads.get(download_id)
         if not download:
-            with self._queue_lock:
-                self._active_count = max(0, self._active_count - 1)
             return
-
+        _lf = open(os.path.join(os.path.expanduser("~"), "vf_dl.log"), "a", encoding="utf-8")
         try:
-            import yt_dlp
-            import yt_dlp.utils
-        except ImportError:
-            download.status = DownloadStatus.ERROR
-            download.error_msg = "yt-dlp no instalado"
-            self._notify()
-            with self._queue_lock:
-                self._active_count = max(0, self._active_count - 1)
-            self._process_queue()
-            return
-
-        temp_cookies_path = None
-        path = os.path.dirname(download.filepath) if download.filepath else self._get_path_from_config()
-        use_cookies = getattr(download, 'use_cookies', False)
-        cookies_path = getattr(download, 'cookies_path', "")
-        quality = download.quality
-
-        if not use_cookies and self._config_ref and getattr(self._config_ref, 'auto_detect_cookies', False):
-            browser = getattr(self._config_ref, 'cookies_browser', 'chrome')
-            use_cookies = True
-            cookies_path = None
-
-        if use_cookies and cookies_path and os.path.exists(cookies_path):
-            try:
-                fd, temp_cookies_path = tempfile.mkstemp(suffix='.txt', text=True)
-                os.close(fd)
-                shutil.copy2(cookies_path, temp_cookies_path)
-            except Exception:
-                temp_cookies_path = None
-
-        UA_CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
-        final_filepath = [None]
-
-        def progress_hook(d):
-            if download._cancelled:
-                raise yt_dlp.utils.DownloadError("Cancelado por usuario")
-            if download._paused:
-                while download._paused and not download._cancelled:
-                    time.sleep(0.5)
-            try:
-                status = d.get('status', '')
-                if status == 'downloading':
-                    progress_value = 0.0
-                    if '_percent_str' in d and d['_percent_str']:
-                        p_str = d['_percent_str'].replace('%', '').strip()
-                        try:
-                            progress_value = float(p_str)
-                        except Exception:
-                            pass
-                    if progress_value == 0.0 and 'downloaded_bytes' in d and 'total_bytes' in d and d['total_bytes']:
-                        if d['total_bytes'] > 0:
-                            progress_value = (d['downloaded_bytes'] / d['total_bytes']) * 100
-                    if progress_value == 0.0 and 'downloaded_bytes' in d and 'total_bytes_estimate' in d and d['total_bytes_estimate']:
-                        if d['total_bytes_estimate'] > 0:
-                            progress_value = (d['downloaded_bytes'] / d['total_bytes_estimate']) * 100
-                    if progress_value == 0.0 and 'fragment_index' in d and 'fragment_count' in d:
-                        if d['fragment_count'] > 0:
-                            progress_value = (d['fragment_index'] / d['fragment_count']) * 100
-                    download.progress = min(progress_value, 99.0)
-                    if '_speed_str' in d and d['_speed_str']:
-                        download.speed = d['_speed_str'].strip()
-                    elif 'speed' in d and d['speed']:
-                        speed_bytes = d['speed']
-                        if speed_bytes > 1024 * 1024:
-                            download.speed = f"{speed_bytes / (1024 * 1024):.2f} MB/s"
-                        elif speed_bytes > 1024:
-                            download.speed = f"{speed_bytes / 1024:.2f} KB/s"
-                        else:
-                            download.speed = f"{speed_bytes:.0f} B/s"
-                    download.status = DownloadStatus.DOWNLOADING
-                    self._notify()
-                elif status == 'finished':
-                    download.progress = 99.0
-                    download.status = DownloadStatus.DOWNLOADING
-                    download.speed = "Procesando..."
-                    info = d.get('info_dict', {})
-                    filename = d.get('filename')
-                    if filename:
-                        final_filepath[0] = filename
-                    elif info.get('filepath'):
-                        final_filepath[0] = info['filepath']
-                    elif info.get('_filename'):
-                        final_filepath[0] = info['_filename']
-                    self._notify()
-            except Exception as e:
-                logger.error(f"Error en progress_hook: {e}")
-
-        def postprocessor_hook(d):
-            try:
-                status = d.get('status', '')
-                if status in ('finished', 'processing'):
-                    info = d.get('info_dict', {})
-                    possible_paths = [
-                        d.get('filepath'),
-                        info.get('filepath'),
-                        info.get('_filename'),
-                        d.get('_filename'),
-                    ]
-                    for p in possible_paths:
-                        if p and os.path.exists(p):
-                            final_filepath[0] = p
-                            break
-                    if status == 'finished':
-                        download.progress = 100.0
-                        download.status = DownloadStatus.COMPLETED
-                        download.speed = "Completado ✓"
-                        download.completed_at = datetime.now()
-                        if final_filepath[0] and os.path.exists(final_filepath[0]):
-                            download.filepath = final_filepath[0]
-                            download.file_size = os.path.getsize(final_filepath[0])
-                        self._notify()
-                        notification_mgr.notify("VideoFlex", f"Descarga completada: {download.name[:30]}...")
-                        play_notification_sound()
-            except Exception as e:
-                logger.error(f"Error en postprocessor_hook: {e}")
-
-        def _generate_thumbnail(video_path: str, dl: VideoDownload):
-            try:
-                thumb_path = os.path.join(os.path.dirname(video_path), f"{download_id}_thumb.jpg")
-                cmd = [
-                    get_ffmpeg_path(), '-y', '-i', video_path,
-                    '-ss', '00:00:05',
-                    '-vframes', '1',
-                    '-vf', 'scale=320:-1',
-                    '-q:v', '3',
-                    thumb_path
-                ]
-                result = subprocess.run(cmd, capture_output=True, timeout=15)
-                if result.returncode == 0 and os.path.exists(thumb_path):
-                    dl.thumbnail = thumb_path
-                    self._notify()
-            except Exception as e:
-                logger.debug(f"No se pudo generar miniatura: {e}")
-
-        base_opts = {
-            'outtmpl': os.path.join(path, '%(title)s [%(id)s].%(ext)s'),
-            'progress_hooks': [progress_hook],
-            'postprocessor_hooks': [postprocessor_hook],
-            'quiet': True,
-            'no_warnings': True,
-            'merge_output_format': 'mp4',
-            'socket_timeout': 60,
-            'retries': 10,
-            'fragment_retries': 10,
-            'http_chunk_size': 1048576,
-            'no_check_certificate': True,
-            'geo_bypass': True,
-                'js_runtimes': {'node': None},
-            'source_address': '0.0.0.0',
-            'http_headers': {'User-Agent': UA_CHROME},
-            'check_formats': False,
-            'allow_unplayable_formats': False,
-            'verbose': False,
-            'concurrent_fragment_downloads': 4,
-            'postprocessors': [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4'
-            }],
-        }
-
-        if download.audio_only:
-            fmt = getattr(download, 'audio_format', 'mp3')
-            base_opts['format'] = 'bestaudio/best'
-            base_opts['merge_output_format'] = fmt
-            base_opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': fmt,
-                'preferredquality': '0' if fmt == 'flac' else '320',
-            }]
-
-        if temp_cookies_path:
-            base_opts['cookiefile'] = temp_cookies_path
-        elif use_cookies and self._config_ref and getattr(self._config_ref, 'auto_detect_cookies', False):
-            browser = getattr(self._config_ref, 'cookies_browser', 'chrome')
-            base_opts['cookiesfrombrowser'] = (browser,)
-            if self._config_ref and getattr(self._config_ref, 'subtitles_enabled', False) and not download.audio_only:
-                _langs = getattr(self._config_ref, 'subtitles_langs', 'es')
-                base_opts['writesubtitles'] = True
-                base_opts['writeautomaticsub'] = True
-                base_opts['subtitleslangs'] = ['all'] if _langs == 'all' else [x.strip() for x in _langs.split(',')]
-                base_opts['subtitlesformat'] = getattr(self._config_ref, 'subtitles_format', 'srt') + '/best'
-                if getattr(self._config_ref, 'embed_subtitles', False):
-                    base_opts['postprocessors'] = base_opts.get('postprocessors', []) + [{'key': 'FFmpegEmbedSubtitle'}]
-
-        if self._config_ref and getattr(self._config_ref, 'proxy_enabled', False):
-            proxy_url = getattr(self._config_ref, 'proxy_url', '')
-            if proxy_url:
-                proxy_user = getattr(self._config_ref, 'proxy_username', '')
-                proxy_pass = getattr(self._config_ref, 'proxy_password', '')
-                if proxy_user and proxy_pass:
-                    proto, rest = proxy_url.split('://', 1) if '://' in proxy_url else ('http', proxy_url)
-                    proxy_url = f"{proto}://{proxy_user}:{proxy_pass}@{rest}"
-                base_opts['proxy'] = proxy_url
-
-        is_youtube = 'youtube.com' in download.url.lower() or 'youtu.be' in download.url.lower()
-        is_tiktok = 'tiktok.com' in download.url.lower()
-        is_insta = 'instagram.com' in download.url.lower()
-        is_twitter = 'twitter.com' in download.url.lower() or 'x.com' in download.url.lower()
-        max_height = int(download.quality) if download.quality.isdigit() else 2160
-
-        if is_tiktok or is_insta or is_twitter:
-            format_priority = ['best[ext=mp4]/best', 'bestvideo+bestaudio/best']
-        elif is_youtube:
-            if download.quality == "best":
-                format_priority = [
-                    'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
-                ]
-            else:
-                format_priority = [
-                    f'bestvideo[height<={max_height}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]',
-                    f'bestvideo[height<={min(max_height, 720)}]+bestaudio/best[height<={min(max_height, 720)}]',
-                    'best[height<=720]/best',
-                ]
-        else:
-            format_priority = [
-                f'bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]',
-                f'bestvideo[height<={min(max_height, 720)}]+bestaudio/best[height<={min(max_height, 720)}]',
-                'best[ext=mp4]/best[ext=webm]/best',
-                'best',
-            ]
-
-        yt_strategies = [None]
-
-        success = False
-        last_exception = None
-
-        try:
-            download.name = "Analizando URL..."
+            import subprocess, sys
+            from collections import deque
             download.status = DownloadStatus.DOWNLOADING
+            download.name = "Analizando URL..."
             self._notify()
-
-            info_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'skip_download': True,
-                'socket_timeout': 20,
-                'retries': 2,
-                'extractor_retries': 1,
-                'source_address': '0.0.0.0',
-                'http_headers': {'User-Agent': UA_CHROME},
-            }
-            if temp_cookies_path:
-                info_opts['cookiefile'] = temp_cookies_path
-
-            with yt_dlp.YoutubeDL(info_opts) as ydl:
-                try:
-                    info = ydl.extract_info(download.url, download=False)
-                    title = info.get('title', 'Video sin título')
-                    download.name = title[:80] if len(title) <= 80 else title[:77] + "..."
-                    thumb_url = info.get('thumbnail') or (
-                        info.get('thumbnails', [{}])[-1].get('url') if info.get('thumbnails') else None
-                    )
-                    if thumb_url:
+            cookies = os.path.join(os.path.expanduser("~"), ".videoflex_cookies.txt")
+            if not os.path.exists(cookies):
+                cookies = os.path.join(os.path.dirname(os.path.abspath(__file__)), "youtube_cookies.txt")
+            outdir = os.path.dirname(download.filepath) if download.filepath else (getattr(download, "save_path", None) or os.path.join(os.path.expanduser("~"), "Videos"))
+            os.makedirs(outdir, exist_ok=True)
+            cfgs = [["--extractor-args", "youtube:player_client=web"],
+                    ["--extractor-args", "youtube:player_client=tv"],
+                    ["--extractor-args", "youtube:player_client=mweb"],
+                    []]
+            rc = 1
+            buf = deque(maxlen=8)
+            for cfg in cfgs:
+                cmd = [sys.executable, "-u", "-m", "yt_dlp", "--js-runtime", "node",
+                       "--remote-components", "ejs:github", "--newline",
+                       "--socket-timeout", "30", "--retries", "2"]
+                if os.path.exists(cookies):
+                    cmd += ["--cookies", cookies]
+                cmd += cfg
+                cmd += ["-o", os.path.join(outdir, "%(title)s.%(ext)s"), download.url]
+                buf.clear()
+                download.progress = 0
+                listo = False
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                        text=True, encoding="utf-8", errors="replace",
+                                        env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"})
+                for line in proc.stdout:
+                    _lf.write(f"{datetime.now().strftime('%H:%M:%S')} {line.rstrip()}\n")
+                    _lf.flush()
+                    buf.append(line.rstrip())
+                    if not listo and ("[Merger]" in line or "[Fixup" in line or
+                                      ("[download]" in line and " in 00:" in line)):
+                        listo = True
+                        download.status = DownloadStatus.COMPLETED
+                        download.speed = ""
+                        download.progress = 100
+                        self._notify(force=True)
+                    if "[download]" in line and "%" in line:
                         try:
-                            t_ext = ".jpg"
-                            if ".webp" in thumb_url:
-                                t_ext = ".webp"
-                            t_path = os.path.join(path, f"{download_id}_thumb{t_ext}")
-                            r = requests.get(thumb_url, timeout=10, headers={'User-Agent': UA_CHROME})
-                            if r.status_code == 200:
-                                with open(t_path, 'wb') as f:
-                                    f.write(r.content)
-                                download.thumbnail = t_path
+                            download.progress = float(line.split("%")[0].split()[-1])
                         except Exception:
                             pass
-                    self._notify()
-                except Exception:
-                    download.name = f"Video ({download.url[:40]})" if len(download.url) > 40 else f"Video ({download.url})"
-
-            for fmt in format_priority:
-                if download._cancelled or success:
+                        if not listo and " at " in line and "/s" in line:
+                            try:
+                                download.speed = line.split(" at ")[1].split(" ETA")[0].strip()
+                            except Exception:
+                                pass
+                        if download.progress >= 100 and not listo:
+                            listo = True
+                            download.status = DownloadStatus.COMPLETED
+                            download.speed = ""
+                            download.progress = 100
+                            self._notify(force=True)
+                        self._notify()
+                    if "Destination:" in line:
+                        _dest = line.split("Destination:")[-1].strip()
+                        download.name = os.path.basename(_dest)
+                        download.filepath = _dest
+                        self._notify()
+                proc.wait()
+                rc = proc.returncode
+                if rc == 0:
                     break
-                opts = {**base_opts, 'format': fmt}
-                strategies = yt_strategies if is_youtube else [None]
-                for strat in strategies:
-                    if download._cancelled or success:
-                        break
-                    if strat is not None:
-                        opts['extractor_args'] = {'youtube': strat}
-                    elif 'extractor_args' in opts:
-                        del opts['extractor_args']
-                    try:
-                        with yt_dlp.YoutubeDL(opts) as ydl:
-                            ydl.download([download.url])
-                        success = True
-                        break
-                    except yt_dlp.utils.DownloadError as e:
-                        err_str = str(e)
-                        last_exception = err_str
-                        if any(k in err_str.lower() for k in ['sign in', 'login', 'drm', 'private', 'unavailable']):
-                            break
-                        continue
-                    except Exception as e:
-                        last_exception = str(e)
-                        continue
-
-            if not success:
-                download.status = DownloadStatus.ERROR
-                msg = str(last_exception) if last_exception else "Error desconocido"
-                if "sign in" in msg.lower() or "login" in msg.lower():
-                    download.error_msg = "🔒 Requiere inicio de sesión. Activa 'Usar Cookies' en Configuración."
-                elif "drm" in msg.lower() or "protected" in msg.lower():
-                    download.error_msg = "🛡️ Video protegido con DRM (Netflix, Amazon, etc.)"
-                elif "unavailable" in msg.lower() or "private" in msg.lower():
-                    download.error_msg = "❌ Video no disponible o privado."
-                elif "ffprobe" in msg.lower() or "ffmpeg" in msg.lower():
-                    download.error_msg = "⚠️ Falta FFmpeg. Instálalo (https://ffmpeg.org) y reinicia la app."
-                elif "format" in msg.lower() and "not found" in msg.lower():
-                    download.error_msg = "⚠️ No se encontró formato compatible. Intenta otro video."
-                elif "cancelled" in msg.lower():
-                    download.error_msg = "Descarga cancelada por el usuario."
-                elif "disk" in msg.lower() or "space" in msg.lower():
-                    download.error_msg = "💾 Espacio insuficiente en disco."
-                else:
-                    download.error_msg = f"Error: {msg[:100]}"
-                self._notify()
-            else:
-                logger.info(f"Descarga exitosa: {download.name}")
-                if not download.filepath:
-                    if final_filepath[0] and os.path.exists(final_filepath[0]):
-                        download.filepath = final_filepath[0]
-                    else:
-                        try:
-                            if os.path.exists(path):
-                                video_extensions = ('.mp4', '.mkv', '.webm', '.avi', '.mp3', '.m4a')
-                                recent_files = []
-                                for f in os.listdir(path):
-                                    if f.endswith(video_extensions) and 'thumb' not in f.lower():
-                                        full_path = os.path.join(path, f)
-                                        try:
-                                            mtime = os.path.getmtime(full_path)
-                                            size = os.path.getsize(full_path)
-                                            if size > 102400 and time.time() - mtime < 300:
-                                                recent_files.append((full_path, mtime, size))
-                                        except Exception:
-                                            pass
-                                recent_files.sort(key=lambda x: (x[2], x[1]), reverse=True)
-                                if recent_files:
-                                    download.filepath = recent_files[0][0]
-                        except Exception as e:
-                            logger.error(f"Error buscando archivo: {e}")
-                download.progress = 100.0
+            if rc == 0:
                 download.status = DownloadStatus.COMPLETED
-                download.speed = "Completado ✓"
-                if (download.filepath and os.path.exists(download.filepath) and not download.audio_only
-                        and self._config_ref and getattr(self._config_ref, 'auto_convert_to_mp4', False)):
-                    _ext = os.path.splitext(download.filepath)[1].lower()
-                    if _ext in ('.mkv', '.webm', '.avi', '.mov', '.flv'):
-                        try:
-                            download.speed = "Convirtiendo a MP4..."
-                            self._notify()
-                            _srcp = download.filepath
-                            _dstp = os.path.splitext(_srcp)[0] + '.mp4'
-                            _rc = subprocess.run([get_ffmpeg_path(), '-y', '-i', _srcp, '-c', 'copy', _dstp], capture_output=True, timeout=600)
-                            if _rc.returncode == 0 and os.path.exists(_dstp):
-                                try:
-                                    os.remove(_srcp)
-                                except Exception:
-                                    pass
-                                download.filepath = _dstp
-                                download.file_size = os.path.getsize(_dstp)
-                        except Exception as _ce:
-                            logger.error(f'Error conversión: {_ce}')
-                if download.filepath and os.path.exists(download.filepath) and not download.thumbnail:
-                    try:
-                        _generate_thumbnail(download.filepath, download)
-                    except Exception as e:
-                        logger.debug(f"Error generando miniatura: {e}")
-                self._notify(force=True)
-                play_notification_sound()
+                download.progress = 100
+                download.speed = ""
+            else:
+                download.status = DownloadStatus.ERROR
+                download.error_msg = " | ".join(list(buf)[-2:])[:120]
+            self._notify(force=True)
         except Exception as e:
+            logger.error(f"Error descarga: {e}")
             download.status = DownloadStatus.ERROR
-            download.error_msg = f"Error inesperado: {str(e)[:80]}"
-            logger.error(f"Error en descarga {download_id}: {e}")
+            download.error_msg = str(e)
             self._notify()
         finally:
-            if temp_cookies_path and os.path.exists(temp_cookies_path):
-                try:
-                    for _ in range(3):
-                        try:
-                            os.remove(temp_cookies_path)
-                            break
-                        except Exception:
-                            time.sleep(0.1)
-                except Exception:
-                    pass
-            with self._lock:
-                if download_id in self._active_threads:
-                    del self._active_threads[download_id]
-            with self._queue_lock:
-                self._active_count = max(0, self._active_count - 1)
-            self._process_queue()
-
+            _lf.close()
     def _get_path_from_config(self):
         if self._config_ref:
             return self._config_ref.video_path
@@ -2270,7 +1958,7 @@ class VideoFlexApp:
                             self.page.bgcolor = "#0f172a" if _eff == "dark" else "#f8fafc"
                             self.page.update()
                         if self.page:
-                            self.page.run_task(_switch())
+                            self.page.run_task(_switch)
             except Exception as e:
                 logger.error(f"Error auto_theme: {e}")
             time.sleep(300)
@@ -3379,7 +3067,7 @@ class VideoFlexApp:
             thumb_content = ft.Image(src=d.thumbnail, width=110, height=75, fit="cover", border_radius=10)
         else:
             thumb_content = ft.Container(
-                content=ft.Icon(ft.Icons.PLAY_CIRCLE_OUTLINE, size=32, color="#475569"),
+                content=None,
                 width=110, height=75, bgcolor="#1e293b" if is_dark else "#e2e8f0",
                 border_radius=10, alignment=ft.Alignment(0, 0)
             )
@@ -4091,7 +3779,7 @@ class VideoFlexApp:
             thumb = ft.Image(src=r['thumb'], width=120, height=68, fit="cover", border_radius=8)
         else:
             thumb = ft.Container(
-                content=ft.Icon(ft.Icons.PLAY_CIRCLE_OUTLINE, size=28, color="#475569"),
+                content=None,
                 width=120, height=68,
                 bgcolor="#1e293b" if is_dark else "#e2e8f0",
                 border_radius=8, alignment=ft.Alignment(0, 0))
@@ -4107,11 +3795,11 @@ class VideoFlexApp:
                         quality=self.config.video_quality)
                     async def go():
                         self.navigate_to("downloads")
-                    self.page.run_task(go())
+                    self.page.run_task(go)
                 except Exception as ex:
                     async def err():
                         self._show_snack(f"❌ Error: {str(ex)[:60]}", "red")
-                    self.page.run_task(err())
+                    self.page.run_task(err)
             threading.Thread(target=work, daemon=True).start()
         return ft.Container(
             padding=10, bgcolor="#334155" if is_dark else "#e2e8f0", border_radius=10,
