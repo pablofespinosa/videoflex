@@ -51,7 +51,7 @@ from collections import deque
 # CONFIGURACIÓN GLOBAL
 # ═══════════════════════════════════════════════════════════════
 APP_NAME = "VideoFlex"
-APP_VERSION = "1.6.4"
+APP_VERSION = "1.6.5"
 APP_AUTHOR = "Pablo F. Espinosa"
 APP_COMPANY = "PFE Computación"
 APP_YEAR = "2025-2026"
@@ -1197,6 +1197,16 @@ class VideoManager:
                                 download.speed = line.split(" at ")[1].split(" ETA")[0].strip()
                             except Exception:
                                 pass
+                        if " of " in line:
+                            try:
+                                download.size_str = line.split(" of ")[1].split(" at ")[0].split(" in ")[0].strip()
+                            except Exception:
+                                pass
+                        if "ETA " in line:
+                            try:
+                                download.eta_str = line.split("ETA ")[1].strip()
+                            except Exception:
+                                pass
                         if download.progress >= 100 and not listo:
                             listo = True
                             download.status = DownloadStatus.COMPLETED
@@ -1249,7 +1259,7 @@ class VideoFlexApp:
     def __init__(self, page: ft.Page):
         self.page = page
         self._splash_status = ft.Text("Inicializando sistema...", color="#94a3b8", size=11)
-        self._splash_progress = ft.ProgressBar(width=320, color="#6366f1", bgcolor="#334155")
+        self._splash_progress = ft.ProgressBar(width=320, color=self._accent(), bgcolor="#334155")
         self.qbit = QBittorrentAPI()
         self.config = self.load_config()
         self.video_mgr = VideoManager(page=page, max_concurrent=self.config.max_concurrent_downloads)
@@ -1314,7 +1324,7 @@ class VideoFlexApp:
         except AttributeError:
             pass
         self.page.theme = ft.Theme(
-            color_scheme_seed="#6366f1",
+            color_scheme_seed=self._accent(),
             visual_density=ft.VisualDensity.COMFORTABLE
         )
 
@@ -1578,11 +1588,11 @@ class VideoFlexApp:
         logo_container = ft.Container(
             width=72, height=72, border_radius=18,
             content=ft.Container(
-                width=72, height=72, border_radius=18, bgcolor="#6366f1",
+                width=72, height=72, border_radius=18, bgcolor=self._accent(),
                 alignment=ft.Alignment(0, 0),
                 content=ft.Icon(ft.Icons.BOLT, size=38, color="white"),
                 shadow=ft.BoxShadow(
-                    spread_radius=0, blur_radius=30, color="#6366f160",
+                    spread_radius=0, blur_radius=30, color=self._accent() + "60",
                     offset=ft.Offset(0, 0),
                 ),
             ),
@@ -1617,15 +1627,15 @@ class VideoFlexApp:
                 # Info en grid 2x2
                 ft.Row([
                     ft.Column([
-                        ft.Text("Versión", size=9, color="#6366f1", weight=ft.FontWeight.W_600),
+                        ft.Text("Versión", size=9, color=self._accent(), weight=ft.FontWeight.W_600),
                         ft.Container(
                             content=ft.Text(APP_VERSION, size=13, color="white", weight=ft.FontWeight.W_600),
                             padding=ft.Padding.symmetric(horizontal=10, vertical=4),
-                            bgcolor="#6366f120", border_radius=8,
+                            bgcolor=self._accent() + "20", border_radius=8,
                         ),
                     ], spacing=4, expand=True),
                     ft.Column([
-                        ft.Text("Desarrollado por", size=9, color="#6366f1", weight=ft.FontWeight.W_600),
+                        ft.Text("Desarrollado por", size=9, color=self._accent(), weight=ft.FontWeight.W_600),
                         ft.Text(APP_AUTHOR, size=12, color="white"),
                     ], spacing=4, expand=True),
                 ]),
@@ -1635,7 +1645,7 @@ class VideoFlexApp:
                 ft.Container(height=1, bgcolor="#334155"),
                 ft.Container(height=16),
                 # Novedades con iconos de check
-                ft.Text(f"Novedades v{APP_VERSION}", size=10, color="#6366f1", weight=ft.FontWeight.W_700),
+                ft.Text(f"Novedades v{APP_VERSION}", size=10, color=self._accent(), weight=ft.FontWeight.W_700),
                 ft.Container(height=10),
                 *[
                     ft.Row([
@@ -1712,7 +1722,7 @@ class VideoFlexApp:
             if isinstance(item, tuple):
                 text, icon, section = item
                 is_selected = section == self._current_section
-                _nav_icon = ft.Icon(icon, size=18, color="#6366f1" if is_selected else "#94a3b8")
+                _nav_icon = ft.Icon(icon, size=18, color=self._accent() if is_selected else "#94a3b8")
                 _nav_pulse = ft.Container(content=_nav_icon, scale=1.0,
                                           animate=ft.Animation(400, "easeInOut"))
                 if not hasattr(self, "_nav_icons"):
@@ -1754,8 +1764,8 @@ class VideoFlexApp:
         shortcuts_panel = ft.Container(
             content=ft.Column([
                 ft.Row([
-                    ft.Icon(ft.Icons.KEYBOARD_ROUNDED, size=14, color="#6366f1"),
-                    ft.Text("Atajos", size=12, weight=ft.FontWeight.W_600, color="#6366f1"),
+                    ft.Icon(ft.Icons.KEYBOARD_ROUNDED, size=14, color=self._accent()),
+                    ft.Text("Atajos", size=12, weight=ft.FontWeight.W_600, color=self._accent()),
                 ], spacing=6),
                 ft.Container(height=8),
                 *[
@@ -1779,9 +1789,9 @@ class VideoFlexApp:
                 ],
             ], spacing=6, tight=True),
             padding=ft.Padding(left=14, right=14, top=12, bottom=12),
-            bgcolor=with_opacity(0.08, "#6366f1"),
+            bgcolor=with_opacity(0.08, self._accent()),
             border_radius=12,
-            border=ft.Border.all(1, with_opacity(0.2, "#6366f1")),
+            border=ft.Border.all(1, with_opacity(0.2, self._accent())),
             margin=ft.Margin.only(top=12),
         )
 
@@ -1894,6 +1904,18 @@ class VideoFlexApp:
                 pass
 
 
+    def _set_accent(self, hv):
+        self.config.accent = hv
+        self.save_config()
+        self.page.controls.clear()
+        self._build_layout()
+        self.navigate_to(self._current_section)
+        self.page.update()
+        self._show_snack("🎨 Color de acento actualizado", "green")
+
+    def _accent(self):
+        return getattr(getattr(self, "config", None), "accent", "#6366f1")
+
     def _pulse_nav_icons(self):
         refs = getattr(self, "_nav_icons", {})
         if not refs:
@@ -1919,7 +1941,7 @@ class VideoFlexApp:
                     ctrl.bgcolor = "#10b98130" if self._pulse_tick else None
                     ctrl.border_radius = 8
                 else:
-                    new_color = "#6366f1" if section == self._current_section else "#94a3b8"
+                    new_color = self._accent() if section == self._current_section else "#94a3b8"
                     ctrl.bgcolor = None
                 if icon.color != new_color:
                     icon.color = new_color
@@ -2218,7 +2240,7 @@ class VideoFlexApp:
                 ft.Button(
                     "Nuevo Video", icon=ft.Icons.ADD_LINK,
                     on_click=lambda e: self.navigate_to("videos"),
-                    bgcolor="#6366f1", color="white", height=32
+                    bgcolor=self._accent(), color="white", height=32
                 ),
                 ft.Button(
                     "Nuevo Torrent", icon=ft.Icons.ADD_CIRCLE,
@@ -2314,7 +2336,7 @@ class VideoFlexApp:
             ft.Container(
                 content=ft.Row([
                     ft.Text(p, size=10, color="#94a3b8"),
-                    ft.Text(str(c), size=11, weight=ft.FontWeight.BOLD, color="#6366f1"),
+                    ft.Text(str(c), size=11, weight=ft.FontWeight.BOLD, color=self._accent()),
                 ], spacing=4),
                 padding=ft.Padding.symmetric(horizontal=10, vertical=5),
                 bgcolor="#334155" if is_dark else "#e2e8f0", border_radius=20,
@@ -2332,7 +2354,7 @@ class VideoFlexApp:
                 ft.Container(height=10),
                 ft.Row([
                     ft.Column([
-                        ft.Text(str(total), size=22, weight=ft.FontWeight.BOLD, color="#6366f1"),
+                        ft.Text(str(total), size=22, weight=ft.FontWeight.BOLD, color=self._accent()),
                         ft.Text("Total descargas", size=10, color="#64748b"),
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
                     ft.VerticalDivider(width=1, color="#334155"),
@@ -2395,7 +2417,7 @@ class VideoFlexApp:
             "orange": "#f59e0b", "purple": "#8b5cf6",
             "red": "#ef4444", "cyan": "#06b6d4",
         }
-        glow_hex = _color_hex.get(color, color if isinstance(color, str) and color.startswith("#") else "#6366f1")
+        glow_hex = _color_hex.get(color, color if isinstance(color, str) and color.startswith("#") else self._accent())
         base_bg = "#1e293b" if is_dark else "#ffffff"
         base_border = with_opacity(0.1, "white" if is_dark else "black")
         card = ft.Container(
@@ -2591,7 +2613,7 @@ class VideoFlexApp:
             if btn:
                 items += [ft.Container(height=14),
                           ft.Button(btn, icon=ft.Icons.SETTINGS, on_click=btn_fn,
-                                            bgcolor="#6366f1", color="white", height=38)]
+                                            bgcolor=self._accent(), color="white", height=38)]
             return ft.Container(
                 content=ft.Column(items, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0, tight=True),
                 alignment=ft.Alignment(0, 0),
@@ -2612,7 +2634,7 @@ class VideoFlexApp:
                 )
             else:
                 torrents_container = _empty(
-                    ft.Icons.CLOUD_DOWNLOAD_OUTLINED, "#6366f1",
+                    ft.Icons.CLOUD_DOWNLOAD_OUTLINED, self._accent(),
                     "Sin torrents activos", "Añade un magnet link para comenzar")
         else:
             torrents_container = _empty(
@@ -2643,7 +2665,7 @@ class VideoFlexApp:
                             ft.Row([
                                 self.magnet_input,
                                 ft.Button("Añadir", icon=ft.Icons.ADD, on_click=add_magnet_improved,
-                                                  bgcolor="#6366f1", color="white", height=44)
+                                                  bgcolor=self._accent(), color="white", height=44)
                             ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                             ft.Container(height=16),
                             ft.Container(
@@ -2652,7 +2674,7 @@ class VideoFlexApp:
                                 border=ft.Border.all(1, border_color),
                                 content=ft.Row([
                                     ft.Row([
-                                        ft.Icon(ft.Icons.TRAVEL_EXPLORE, size=16, color="#6366f1"),
+                                        ft.Icon(ft.Icons.TRAVEL_EXPLORE, size=16, color=self._accent()),
                                         ft.Text("Accesos Directos", size=13, weight=ft.FontWeight.W_600, color=text_secondary),
                                     ], spacing=8),
                                     ft.Container(expand=True),
@@ -2666,7 +2688,7 @@ class VideoFlexApp:
                                     ft.Button("Ir al Sitio", icon=ft.Icons.OPEN_IN_NEW,
                                                       on_click=lambda e: self._open_site_url(
                                                           sites.get(site_dropdown.value, "")),
-                                                      bgcolor="#6366f1", color="white", height=38),
+                                                      bgcolor=self._accent(), color="white", height=38),
                                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=0)
                             ),
                         ], spacing=0, tight=True)
@@ -2837,7 +2859,7 @@ class VideoFlexApp:
                         ft.Text(f"ETA: {format_eta(eta)}", size=12, color="#64748b"),
                     ], spacing=6),
                     ft.Container(width=8),
-                    ft.IconButton(icon=ft.Icons.INFO_OUTLINE, icon_size=18, icon_color="#6366f1",
+                    ft.IconButton(icon=ft.Icons.INFO_OUTLINE, icon_size=18, icon_color=self._accent(),
                                   tooltip="Pares y Trackers",
                                   on_click=lambda e, t=torrent: self._show_torrent_details(t)),
                 ], spacing=0),
@@ -2863,7 +2885,7 @@ class VideoFlexApp:
                 prog = p.get('progress', 0) * 100
                 peer_rows.append(
                     ft.Row([
-                        ft.Text(f"{country}", size=11, color="#6366f1", width=28),
+                        ft.Text(f"{country}", size=11, color=self._accent(), width=28),
                         ft.Text(f"{ip}", size=11, color="#94a3b8", expand=True),
                         ft.Text(f"⬇ {dl:.0f} KB/s", size=11, color="#3b82f6", width=80),
                         ft.Text(f"{prog:.0f}%", size=11, color="#10b981", width=40),
@@ -2896,7 +2918,7 @@ class VideoFlexApp:
                 content=ft.Container(
                     width=480,
                     content=ft.Column([
-                        ft.Text(f"Pares ({len(peers)})", size=12, weight=ft.FontWeight.W_600, color="#6366f1"),
+                        ft.Text(f"Pares ({len(peers)})", size=12, weight=ft.FontWeight.W_600, color=self._accent()),
                         ft.Container(height=6),
                         ft.Column(peer_rows, spacing=4),
                         ft.Divider(height=16, color="#334155"),
@@ -3055,7 +3077,7 @@ class VideoFlexApp:
                     ft.Row([
                         url_input, quality_dropdown,
                         ft.Button("Descargar", icon=ft.Icons.DOWNLOAD, on_click=download_click,
-                                          bgcolor="#6366f1", color="white", height=48)
+                                          bgcolor=self._accent(), color="white", height=48)
                     ], spacing=10),
                     ft.Container(height=10),
                     ft.Row([audio_format_dropdown, ft.Container(width=10), schedule_field, ft.Container(expand=True)]),
@@ -3162,7 +3184,7 @@ class VideoFlexApp:
                           on_click=lambda e: self._retry_all_failed(),
                           style=ft.ButtonStyle(color="#ef4444" if error_downloads > 0 else "#64748b")),
             ft.Container(expand=True),
-            ft.IconButton(ft.Icons.REFRESH_ROUNDED, tooltip="Actualizar", icon_color="#6366f1", icon_size=22,
+            ft.IconButton(ft.Icons.REFRESH_ROUNDED, tooltip="Actualizar", icon_color=self._accent(), icon_size=22,
                           on_click=lambda e: self.navigate_to("downloads")),
         ], spacing=8)
 
@@ -3205,7 +3227,7 @@ class VideoFlexApp:
                     ft.Row([
                         ft.Container(
                             content=ft.Icon(ft.Icons.DOWNLOAD_ROUNDED, size=24, color="white"),
-                            width=48, height=48, bgcolor="#6366f1", border_radius=14,
+                            width=48, height=48, bgcolor=self._accent(), border_radius=14,
                             alignment=ft.Alignment(0, 0)
                         ),
                         ft.Container(width=14),
@@ -3262,7 +3284,7 @@ class VideoFlexApp:
 
         action_widgets = []
         if is_completed:
-            action_widgets.append(ft.IconButton(icon=ft.Icons.FOLDER_OPEN, icon_color="#6366f1", icon_size=28,
+            action_widgets.append(ft.IconButton(icon=ft.Icons.FOLDER_OPEN, icon_color=self._accent(), icon_size=28,
                                                 tooltip="Abrir carpeta", on_click=lambda e: self._open_downloads_folder()))
             if d.filepath and os.path.exists(d.filepath):
                 action_widgets.insert(0, ft.IconButton(icon=ft.Icons.PLAY_CIRCLE_FILL, icon_color="#10b981",
@@ -3279,6 +3301,23 @@ class VideoFlexApp:
             action_widgets.append(ft.IconButton(icon=ft.Icons.REFRESH, icon_color="#f59e0b", icon_size=28,
                                                 tooltip="Reintentar",
                                                 on_click=lambda e, dl=d: self._retry_download(dl)))
+
+        meta_parts = []
+        if is_downloading:
+            if getattr(d, "speed", ""):
+                meta_parts.append(f"⚡ {d.speed}")
+            if getattr(d, "eta_str", ""):
+                meta_parts.append(f"⏱ {d.eta_str}")
+        elif is_completed:
+            meta_parts.append(f"✓ {d.progress:.0f}%")
+        if getattr(d, "size_str", ""):
+            meta_parts.append(f"📦 {d.size_str}")
+        _q = getattr(d, "quality", "")
+        if _q and _q != "best":
+            meta_parts.append(f"🎬 {_q}p")
+        elif _q == "best":
+            meta_parts.append("🎬 MAX")
+        meta_text = "   ".join(meta_parts)
 
         main_content = ft.Row([
             ft.Container(content=thumb_content, border_radius=10, clip_behavior="hardEdge"),
@@ -3299,8 +3338,7 @@ class VideoFlexApp:
                         bgcolor=status_bg, border_radius=8
                     ),
                     ft.Container(width=10),
-                    ft.Text(d.speed if is_downloading else (f"✓ {d.progress:.0f}%" if is_completed else f"{d.progress:.0f}%"),
-                            size=11, color="#64748b") if not is_error else ft.Container(),
+                    ft.Text(meta_text, size=11, color="#64748b") if (not is_error and meta_text) else ft.Container(),
                 ], spacing=0),
                 ft.Container(height=10),
                 ft.Container(
@@ -3376,7 +3414,7 @@ class VideoFlexApp:
         bar_controls = []
         for i, count in enumerate(day_counts):
             h = int((count / max_count) * 50) if max_count > 0 else 2
-            color = "#6366f1" if i == 6 else "#334155" if is_dark else "#e2e8f0"
+            color = self._accent() if i == 6 else "#334155" if is_dark else "#e2e8f0"
             bar_controls.append(
                 ft.Column([
                     ft.Container(width=30, height=max(h, 2), bgcolor=color, border_radius=4),
@@ -3393,7 +3431,7 @@ class VideoFlexApp:
             pct = count / total_pl
             p_colors = {'YouTube': '#ef4444', 'TikTok': '#000000', 'Instagram': '#e1306c',
                         'Twitter': '#1da1f2', 'Facebook': '#1877f2', 'Vimeo': '#1ab7ea'}
-            col = p_colors.get(plat, "#6366f1")
+            col = p_colors.get(plat, self._accent())
             platform_bars.append(ft.Column([
                 ft.Row([
                     ft.Text(plat, size=11, color="#94a3b8", expand=True),
@@ -3447,7 +3485,7 @@ class VideoFlexApp:
             ft.Container(
                 content=ft.Row([
                     ft.Text(plat, size=10, color="#94a3b8"),
-                    ft.Text(str(count), size=12, weight=ft.FontWeight.BOLD, color="#6366f1"),
+                    ft.Text(str(count), size=12, weight=ft.FontWeight.BOLD, color=self._accent()),
                 ], spacing=4),
                 padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                 bgcolor="#334155", border_radius=20
@@ -3558,8 +3596,8 @@ class VideoFlexApp:
                                                  shape=ft.RoundedRectangleBorder(radius=8)), height=38),
             ft.Container(expand=True),
             search_field, ft.Container(width=10), date_filter,
-            ft.IconButton(ft.Icons.FILTER_LIST, tooltip="Aplicar filtros", icon_color="#6366f1", on_click=apply_filters),
-            ft.IconButton(ft.Icons.REFRESH_ROUNDED, tooltip="Actualizar", icon_color="#6366f1", icon_size=22,
+            ft.IconButton(ft.Icons.FILTER_LIST, tooltip="Aplicar filtros", icon_color=self._accent(), on_click=apply_filters),
+            ft.IconButton(ft.Icons.REFRESH_ROUNDED, tooltip="Actualizar", icon_color=self._accent(), icon_size=22,
                           on_click=lambda e: self.navigate_to("history")),
         ], spacing=10)
 
@@ -3624,7 +3662,7 @@ class VideoFlexApp:
             content=ft.Row([
                 ft.Container(
                     content=ft.Text(plat[0], size=14, weight=ft.FontWeight.BOLD, color="white"),
-                    width=36, height=36, bgcolor=platform_colors.get(plat, "#6366f1"),
+                    width=36, height=36, bgcolor=platform_colors.get(plat, self._accent()),
                     border_radius=10, alignment=ft.Alignment(0, 0)
                 ),
                 ft.Container(width=12),
@@ -3643,7 +3681,7 @@ class VideoFlexApp:
                               tooltip="Reproducir" if file_exists else "Archivo no disponible",
                               on_click=lambda e, fp=filepath: self._play_video(fp) if fp and os.path.exists(fp) else None,
                               disabled=not file_exists),
-                ft.IconButton(icon=ft.Icons.FOLDER_OPEN, icon_size=20, icon_color="#6366f1",
+                ft.IconButton(icon=ft.Icons.FOLDER_OPEN, icon_size=20, icon_color=self._accent(),
                               tooltip="Abrir ubicación",
                               on_click=lambda e, fp=filepath: self._open_file_location_path(fp)),
                 ft.IconButton(icon=ft.Icons.DOWNLOAD, icon_size=20, icon_color="#f59e0b",
@@ -3709,7 +3747,7 @@ class VideoFlexApp:
 
             dialog.actions = [
                 ft.TextButton("Cancelar", on_click=do_cancel),
-                ft.Button(f"Descargar {count} videos", bgcolor="#6366f1", color="white", on_click=do_confirm),
+                ft.Button(f"Descargar {count} videos", bgcolor=self._accent(), color="white", on_click=do_confirm),
             ]
             self.page.overlay.append(dialog)
             dialog.open = True
@@ -3844,7 +3882,7 @@ class VideoFlexApp:
                 padding=ft.Padding.symmetric(horizontal=24, vertical=20),
                 content=ft.Column([
                     ft.Row([
-                        ft.Icon(ft.Icons.TRAVEL_EXPLORE, size=26, color="#6366f1"),
+                        ft.Icon(ft.Icons.TRAVEL_EXPLORE, size=26, color=self._accent()),
                         ft.Container(width=10),
                         ft.Text("Explorar", size=24, weight=ft.FontWeight.BOLD),
                     ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -3854,15 +3892,15 @@ class VideoFlexApp:
                         border=ft.Border.all(1, border),
                         content=ft.Column([
                             ft.Row([
-                                ft.Icon(ft.Icons.SEARCH, size=16, color="#6366f1"),
-                                ft.Text("Buscar en YouTube", size=13, weight=ft.FontWeight.W_600, color="#6366f1"),
+                                ft.Icon(ft.Icons.SEARCH, size=16, color=self._accent()),
+                                ft.Text("Buscar en YouTube", size=13, weight=ft.FontWeight.W_600, color=self._accent()),
                             ], spacing=8),
                             ft.Container(height=10),
                             ft.Row([
                                 self._search_input,
                                 ft.Button("Buscar", icon=ft.Icons.SEARCH,
                                                   on_click=lambda e: self._do_video_search(),
-                                                  bgcolor="#6366f1", color="white", height=48),
+                                                  bgcolor=self._accent(), color="white", height=48),
                             ], spacing=10),
                             ft.Container(height=12),
                             ft.Container(content=self._search_results, height=340),
@@ -4011,7 +4049,7 @@ class VideoFlexApp:
                         ft.Text(f"  •  {dur_txt}" if dur_txt else "", size=10, color="#64748b"),
                     ]),
                 ], expand=True, spacing=4),
-                ft.IconButton(icon=ft.Icons.DOWNLOAD, icon_color="#6366f1", icon_size=24,
+                ft.IconButton(icon=ft.Icons.DOWNLOAD, icon_color=self._accent(), icon_size=24,
                               tooltip="Descargar", on_click=dl),
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
         )
@@ -4126,6 +4164,18 @@ class VideoFlexApp:
                     self._theme_option_compact("Claro", ft.Icons.LIGHT_MODE, "light", self.config.theme == "light"),
                     self._theme_option_compact("Oscuro", ft.Icons.DARK_MODE, "dark", self.config.theme == "dark"),
                     self._theme_option_compact("Auto", ft.Icons.AUTO_MODE, "auto", self.config.theme == "auto"),
+                ], spacing=10),
+                ft.Container(height=14),
+                ft.Text("Color de acento", size=12, weight=ft.FontWeight.W_600,
+                        color="grey" if is_dark else "black"),
+                ft.Container(height=8),
+                ft.Row([
+                    ft.Container(
+                        width=32, height=32, border_radius=16, bgcolor=hv,
+                        border=ft.Border.all(3, "white" if is_dark else "#1e293b") if self._accent() == hv else ft.Border.all(1, with_opacity(0.2, "grey")),
+                        on_click=lambda e, hv=hv: self._set_accent(hv),
+                        ink=True, tooltip=nm,
+                    ) for nm, hv in [("Indigo", "#6366f1"), ("Verde", "#10b981"), ("Naranja", "#f59e0b"), ("Rosa", "#ec4899"), ("Cian", "#06b6d4")]
                 ], spacing=10)
             ], tight=True),
             padding=18, bgcolor=bg_container, border_radius=12,
@@ -4196,7 +4246,7 @@ class VideoFlexApp:
                     ft.Text("qBittorrent", size=16, weight=ft.FontWeight.W_600),
                     ft.Container(expand=True),
                     ft.Button("Probar Conexión", icon=ft.Icons.NETWORK_CHECK, on_click=test_connection,
-                                      bgcolor="#6366f1", color="white", height=40)
+                                      bgcolor=self._accent(), color="white", height=40)
                 ]),
                 ft.Container(height=10),
                 self.settings_connection_status,
@@ -4409,17 +4459,17 @@ class VideoFlexApp:
                     paths_section, ft.Container(height=14),
                     advanced_section, ft.Container(height=24),
                     ft.Button("💾 Guardar Configuración", icon=ft.Icons.SAVE, on_click=save,
-                                      bgcolor="#6366f1", color="white", height=52, expand=True)
+                                      bgcolor=self._accent(), color="white", height=52, expand=True)
                 ], spacing=0, tight=True)
             )
         ]
 
     def _theme_option_compact(self, label: str, icon, theme_value: str, is_selected: bool):
         bg_color = "#334155" if is_selected else "#1e293b" if self.config.theme == "dark" else "#f1f5f9"
-        border_color = "#f59e0b" if theme_value == "light" and is_selected else "#6366f1" if theme_value == "dark" and is_selected else "transparent"
+        border_color = "#f59e0b" if theme_value == "light" and is_selected else self._accent() if theme_value == "dark" and is_selected else "transparent"
         return ft.Container(
             content=ft.Column([
-                ft.Icon(icon, size=28, color="#f59e0b" if theme_value == "light" else "#6366f1"),
+                ft.Icon(icon, size=28, color="#f59e0b" if theme_value == "light" else self._accent()),
                 ft.Text(label, size=12, weight=ft.FontWeight.W_500),
                 ft.Icon(ft.Icons.CHECK_CIRCLE, color="green", size=18) if is_selected else ft.Container(width=18, height=18)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
@@ -4483,7 +4533,7 @@ class VideoFlexApp:
                     ft.Row([
                         ft.Container(
                             content=ft.Icon(ft.Icons.BOLT, size=32, color="white"),
-                            width=60, height=60, bgcolor="#6366f1", border_radius=16,
+                            width=60, height=60, bgcolor=self._accent(), border_radius=16,
                             alignment=ft.Alignment(0, 0),
                         ),
                         ft.Container(width=14),
@@ -4517,7 +4567,7 @@ class VideoFlexApp:
                             ft.Row([
                                 ft.Button("Ayuda  F1", icon=ft.Icons.HELP,
                                                   on_click=lambda e: self._show_help_dialog(),
-                                                  bgcolor="#6366f1", color="white", height=34),
+                                                  bgcolor=self._accent(), color="white", height=34),
                                 ft.Container(width=8),
                                 ft.Button("GitHub", icon=ft.Icons.CODE,
                                                   on_click=lambda e: webbrowser.open(APP_GITHUB_URL),
@@ -4570,7 +4620,7 @@ class VideoFlexApp:
         text_col = "white" if is_dark else "#1e293b"
         help_content = ft.Column([
             ft.Row([
-                ft.Icon(ft.Icons.HELP, size=32, color="#6366f1"),
+                ft.Icon(ft.Icons.HELP, size=32, color=self._accent()),
                 ft.Text("Centro de Ayuda", size=24, weight=ft.FontWeight.BOLD),
             ], spacing=12),
             ft.Container(height=16),
@@ -4665,7 +4715,7 @@ class VideoFlexApp:
                                   bgcolor="#475569", color="white", height=42),
                 ft.Container(width=12),
                 ft.Button("Ayuda Rápida", icon=ft.Icons.HELP_OUTLINE,
-                                  on_click=self._show_help_dialog, bgcolor="#6366f1", color="white", height=42),
+                                  on_click=self._show_help_dialog, bgcolor=self._accent(), color="white", height=42),
             ]),
         ], spacing=0, scroll=ft.ScrollMode.AUTO)
 
@@ -4675,7 +4725,7 @@ class VideoFlexApp:
 
     def _show_help_dialog(self, e=None):
         help_text = ft.Column([
-            ft.Text("🎯 AYUDA RÁPIDA", size=20, weight=ft.FontWeight.BOLD, color="#6366f1"),
+            ft.Text("🎯 AYUDA RÁPIDA", size=20, weight=ft.FontWeight.BOLD, color=self._accent()),
             ft.Divider(height=12),
             ft.Text("📥 DESCARGAS DE VIDEO:", size=14, weight=ft.FontWeight.W_600),
             ft.Text("• YouTube, TikTok, Instagram, Twitter, Facebook, Vimeo", size=12),
