@@ -51,7 +51,7 @@ from collections import deque
 # CONFIGURACIÓN GLOBAL
 # ═══════════════════════════════════════════════════════════════
 APP_NAME = "VideoFlex"
-APP_VERSION = "1.6.7"
+APP_VERSION = "1.6.8"
 APP_AUTHOR = "Pablo F. Espinosa"
 APP_COMPANY = "PFE Computación"
 APP_YEAR = "2025-2026"

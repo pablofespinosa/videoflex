@@ -1,7 +1,4 @@
 # Uso:  python release.py [patch|minor|major] "mensaje del commit"
-#   patch: 1.6.4 -> 1.6.5   (arreglos y mejoras chicas)
-#   minor: 1.6.4 -> 1.7.0   (funcionalidades nuevas)
-#   major: 1.6.4 -> 2.0.0   (cambios grandes)
 import io, re, sys, subprocess
 
 p = "VideoFlex_Q.py"
@@ -22,7 +19,18 @@ else:
 newv = f"{maj}.{mino}.{pat}"
 src = re.sub(r'(?m)^APP_VERSION\s*=\s*"\d+\.\d+\.\d+"', f'APP_VERSION = "{newv}"', src, count=1)
 io.open(p, "w", encoding="utf-8").write(src)
-print("Nueva version:", newv)
+print("Nueva version app:", newv)
+
+for archivo, patron in [("README.md", r"Versión actual: \d+\.\d+\.\d+"),
+                        ("LICENSE", r"\b\d+\.\d+\.\d+\b")]:
+    try:
+        txt = io.open(archivo, encoding="utf-8").read()
+        txt2 = re.sub(patron, f"Versión actual: {newv}" if archivo == "README.md" else newv, txt)
+        if txt2 != txt:
+            io.open(archivo, "w", encoding="utf-8").write(txt2)
+            print("OK", archivo, "sincronizado")
+    except Exception as e:
+        print(archivo, ":", e)
 
 def run(*cmd):
     print(">", " ".join(cmd))
@@ -33,7 +41,7 @@ def run(*cmd):
         print("ERR:", r.stderr.strip()[:400])
     return r.returncode == 0
 
-ok = run("git", "add", p)
+ok = run("git", "add", "VideoFlex_Q.py", "README.md", "LICENSE", "release.py")
 ok = run("git", "commit", "-m", f"v{newv}: {msg}") and ok
 ok = run("git", "tag", "-a", f"v{newv}", "-m", f"VideoFlex {newv}") and ok
 ok = run("git", "push", "origin", "main") and ok
